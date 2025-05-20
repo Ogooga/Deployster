@@ -206,14 +206,16 @@ undo_step() {
   fi
 }
 
-# --- INPUT PROMPTS WITH 'undo' SUPPORT ---
+# --- INPUT PROMPTS WITH 'undo' SUPPORT AND FIXED COLORS ---
 prompt_required() {
-  local var_name="$1" prompt_text="$2" default="$3" input
+  local var_name="$1" prompt_text="$2" default="$3" input prompt_line
   while true; do
-    prompt "$prompt_text"
-    [[ -n "$default" ]] && echo -n " [${CYAN}$default${RESET}]"
-    echo -n ": "
-    read input
+    if [[ -n "$default" ]]; then
+      prompt_line="${BOLD}${prompt_text}${RESET} [${CYAN}${default}${RESET}]: "
+    else
+      prompt_line="${BOLD}${prompt_text}${RESET}: "
+    fi
+    read -e -p "$prompt_line" input
     [[ "$input" == "undo" ]] && { undo_step; return 1; }
     if [[ -n "$default" && -z "$input" ]]; then input="$default"; fi
     if [[ -z "$input" ]]; then
@@ -276,7 +278,7 @@ EOF
 # --- MAIN WIZARD STEPS ---
 
 configure() {
-  maybe_clear
+  # Do not clear the screen before the first step so the banner is visible
   step_title 1 5 "Repository configuration"
   # Prompt for repo name (with undo support)
   while ! prompt_required REPO_NAME "Repository name (without .git)" "myproject"; do :; done
@@ -284,6 +286,7 @@ configure() {
   local saved
   saved=$(grep -F "${REPO_NAME}:" "$STATE_FILE" 2>/dev/null || true)
   if [[ -n "$saved" ]]; then
+    maybe_clear
     restore_state_vars
     info "Detected previous incomplete setup for '${REPO_NAME}'."
     echo -e "State: step=$CURRENT_STEP, REPO_ROOT=$REPO_ROOT, WORK_TREE=$WORK_TREE, BRANCH=${BRANCH:-}, HOOK_TYPE=${HOOK_TYPE:-}"
