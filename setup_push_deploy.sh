@@ -210,28 +210,26 @@ select_hook() {
         read -p "Continue anyway? (y/n): " conf
         [[ ! "${conf}" =~ ^[Yy] ]] && { echo "Aborting."; exit 1; }
       fi
-      HOOK_SCRIPT=$(gen_hook_specific)
+      HOOK_GENERATOR=gen_hook_specific
       ;;
-    "Any branch") HOOK_SCRIPT=$(gen_hook_any);;
-    *) HOOK_SCRIPT=$(gen_hook_prune);;
+    "Any branch") HOOK_GENERATOR=gen_hook_any;;
+    *) HOOK_GENERATOR=gen_hook_prune;;
   esac
   save_state 3; CURRENT_STEP=4
 }
 
 install_hook() {
   (( CURRENT_STEP > 4 )) && return
-  echo; printf "=== Step 4: Install hook ===
-"
+  echo; printf "=== Step 4: Install hook ===\n"
   HOOK_PATH="$BARE_DIR/hooks/post-receive"
   mkdir -p "$(dirname "$HOOK_PATH")"
-  printf "%s\n" "$HOOK_SCRIPT" > "$HOOK_PATH"
+  $HOOK_GENERATOR > "$HOOK_PATH"
   chmod +x "$HOOK_PATH"
   # Strip CRLF
   if command -v dos2unix >/dev/null 2>&1; then
     dos2unix "$HOOK_PATH" >/dev/null
   else
-    tr -d '
-' < "$HOOK_PATH" >"$HOOK_PATH.tmp" && mv "$HOOK_PATH.tmp" "$HOOK_PATH"
+    tr -d '\r' < "$HOOK_PATH" > "$HOOK_PATH.tmp" && mv "$HOOK_PATH.tmp" "$HOOK_PATH"
   fi
   echo "Hook installed at $HOOK_PATH"
   save_state 4; CURRENT_STEP=5
