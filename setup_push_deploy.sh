@@ -30,28 +30,30 @@ if [[ ! -e "$STATE_FILE" ]]; then
   }
 fi
 
-# Helper to read saved step for a repo
+# Helper to read saved step for a repo (fixed-string grep)
 get_saved_step() {
-  grep -E "^${REPO_NAME}:" "$STATE_FILE" | cut -d: -f2
+  grep -F "${REPO_NAME}:" "$STATE_FILE" | cut -d: -f2
 }
 
 # Helper to save state: update or append "repo:step"
 save_state() {
-  local step=$1
-  # remove old entry
-  grep -v -E "^${REPO_NAME}:" "$STATE_FILE" > "$STATE_FILE.tmp"
-  echo "${REPO_NAME}:${step}" >> "$STATE_FILE.tmp"
-  mv "$STATE_FILE.tmp" "$STATE_FILE"
+  local step=$1 tmp
+  tmp=$(mktemp "${STATE_FILE}.tmp.XXXX")
+  grep -v -F "${REPO_NAME}:" "$STATE_FILE" > "$tmp"
+  echo "${REPO_NAME}:${step}" >> "$tmp"
+  mv "$tmp" "$STATE_FILE"
 }
 
 # Helper to clear state for a repo
 clear_state() {
-  grep -v -E "^${REPO_NAME}:" "$STATE_FILE" > "$STATE_FILE.tmp"
-  mv "$STATE_FILE.tmp" "$STATE_FILE"
+  local tmp
+  tmp=$(mktemp "${STATE_FILE}.tmp.XXXX")
+  grep -v -F "${REPO_NAME}:" "$STATE_FILE" > "$tmp"
+  mv "$tmp" "$STATE_FILE"
 }
 
 # 1. Gather parameters
-echo "\n=== Step 1: Configuration ==="
+echo; printf "=== Step 1: Configuration ===\n"
 DEFAULT_REPO_ROOT="$HOME/.gitrepo"
 DEFAULT_WEB_ROOT="$HOME/public_html"
 DEFAULT_BRANCH="main"
@@ -80,8 +82,8 @@ if [[ -n "$SAVED_STEP" ]]; then
   while true; do
     read -p "Resume '${REPO_NAME}' from step $((SAVED_STEP+1))? (y/n): " ans
     case "$ans" in [Yy]) CURRENT_STEP=$((SAVED_STEP+1)); break;;
-           [Nn]) clear_state; CURRENT_STEP=1; break;;
-           *) echo "Enter y or n.";;
+               [Nn]) clear_state; CURRENT_STEP=1; break;;
+               *) echo "Enter y or n.";;
     esac
   done
 fi
@@ -90,8 +92,7 @@ fi
 if (( CURRENT_STEP <= 1 )); then
   prompt REPO_ROOT "Bare repo root folder" "$DEFAULT_REPO_ROOT"
   prompt WORK_TREE "Deployment target folder" "$DEFAULT_WEB_ROOT"
-  save_state 1
-  CURRENT_STEP=2
+  save_state 1; CURRENT_STEP=2
 fi
 
 # Validate and normalize paths
@@ -107,22 +108,27 @@ BARE_DIR="$REPO_ROOT/${REPO_NAME}.git"
 
 # 2. Prepare bare repository
 if (( CURRENT_STEP <= 2 )); then
-  echo "\n=== Step 2: Prepare bare repository ==="
+  echo; printf "=== Step 2: Prepare bare repository ===\n"
   printf "Location: %s\n" "$BARE_DIR"
-  [[ -d "$BARE_DIR" ]] && echo "Exists, skipping." || { mkdir -p "$BARE_DIR"; git init --bare "$BARE_DIR"; echo "Initialized."; }
+  if [[ -d "$BARE_DIR" ]]; then
+    echo "Exists, skipping."
+  else
+    mkdir -p "$BARE_DIR"
+    git init --bare "$BARE_DIR"
+    echo "Initialized."
+  fi
   save_state 2; CURRENT_STEP=3
 fi
 
 # 3. Choose and build post-receive hook
 if (( CURRENT_STEP <= 3 )); then
-  echo "\n=== Step 3: Select hook type ==="
+  echo; printf "=== Step 3: Select hook type ===\n"
   options=("Specific branch" "Any branch" "Any branch & delete others")
   for i in "${!options[@]}"; do printf "%d) %s\n" $((i+1)) "${options[i]}"; done
   while true; do
     read -p "Choice (1-${#options[@]}): " c
-    ((c>=1&&c<=${#options[@]})) && break || echo "Invalid.";
-  done
-  HOOK_TYPE="${options[c-1]}"
+    ((c>=1&&c<=${#options[@]})) && break || echo "Invalid."
+  done; HOOK_TYPE="${options[c-1]}"
 
   case "$HOOK_TYPE" in
     "Specific branch")
@@ -153,7 +159,7 @@ echo "WARNING: deletes other branches"
 while read old new ref; do
   branch=\$(git rev-parse --abbrev-ref "\$ref")
   git --work-tree="$WORK_TREE" checkout -f "\$branch"
-  git for-each-ref --format="%(refname:short)" refs/heads | while read head; do
+  git for-each-ref --format="%(refname:short)" refs/heads | while IFS= read -r head; do
     [[ "\$head" != "\$branch" ]] && git update-ref -d "refs/heads/\$head"
   done
 done
@@ -166,23 +172,34 @@ fi
 
 # 4. Install post-receive hook
 if (( CURRENT_STEP <= 4 )); then
-  echo "\n=== Step 4: Install hook ==="
+  echo; printf "=== Step 4: Install hook ===\n"
   HOOK_PATH="$BARE_DIR/hooks/post-receive"
   mkdir -p "$(dirname "$HOOK_PATH")"
-  printf "%s\n" "$HOOK_SCRIPT" > "$HOOK_PATH" && chmod +x "$HOOK_PATH"
-  # strip CRLFif command -v dos2unix &>/dev/null; then dos2unix "$HOOK_PATH" &>/dev/null; else sed -i 's/\r$//' "$HOOK_PATH"; fi
+  printf "%s\n" "$HOOK_SCRIPT" > "$HOOK_PATH"
+  chmod +x "$HOOK_PATH"
+  # strip CRLF
+  if command -v dos2unix &>/dev/null; then
+    dos2unix "$HOOK_PATH" &>/dev/null
+  else
+    sed -i 's/\r$//' "$HOOK_PATH"
+  fi
   echo "Hook installed."
   save_state 4; CURRENT_STEP=5
 fi
 
 # 5. Final instructions
 if (( CURRENT_STEP <= 5 )); then
-  echo "\n=== Step 5: Complete ==="
-  FULL="ssh://$USER_NAME@$HOST_FQDN/${BARE_DIR#/}"
-  SHORT="ssh://$USER_NAME@$HOST_FQDN/~/${BARE_DIR#${HOME}/}"
-  echo "git remote add production $FULL"
+  echo; printf "=== Step 5: Complete ===\n"
+  # Build URL components safely
+  PATH_PART="${BARE_DIR#/}"
+  printf -v FULL_URL "ssh://%s@%s/%s" "$USER_NAME" "$HOST_FQDN" "$PATH_PART"
+  # Home-based shorthand
+  SHORT_PART="~/${BARE_DIR#${HOME}/}"
+  printf -v SHORTHAND_URL "ssh://%s@%s/%s" "$USER_NAME" "$HOST_FQDN" "$SHORT_PART"
+
+  echo "git remote add production $FULL_URL"
   echo "or"
-  echo "git remote add production $SHORT"
+  echo "git remote add production $SHORTHAND_URL"
   echo "git push production ${BRANCH:-<branch>}"
   clear_state
 fi
