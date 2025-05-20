@@ -6,7 +6,8 @@
 
 # Prevent word splitting on spaces in filenames or inputs
 OLD_IFS=$IFS
-IFS=$'\n\t'
+IFS=$'
+  '
 set -euo pipefail
 trap 'IFS=$OLD_IFS' EXIT
 
@@ -126,7 +127,8 @@ EOF
 
 # Step functions
 configure() {
-  echo; printf "=== Step 1: Configuration ===\n"
+  echo; printf "=== Step 1: Configuration ===
+"
   prompt_required REPO_NAME "Repository name (without .git)" "myproject"
   [[ -e "$STATE_FILE" ]] || touch "$STATE_FILE"
   local saved=$(get_saved_step)
@@ -149,13 +151,15 @@ configure() {
 
 prepare_repo() {
   (( CURRENT_STEP > 2 )) && return
-  echo; printf "=== Step 2: Prepare bare repository ===\n"
+  echo; printf "=== Step 2: Prepare bare repository ===
+"
   REPO_ROOT=$($PATH_RESOLVE "$REPO_ROOT")
   WORK_TREE=$($PATH_RESOLVE "$WORK_TREE")
   log "Resolved REPO_ROOT to $REPO_ROOT, WORK_TREE to $WORK_TREE"
   BARE_DIR="$REPO_ROOT/${REPO_NAME}.git"
   [[ "$BARE_DIR" == "/" ]] && { echo "ERROR: BARE_DIR cannot be '/'." >&2; exit 1; }
-  printf "Location: %s\n" "$BARE_DIR"
+  printf "Location: %s
+" "$BARE_DIR"
   if [[ -d "$BARE_DIR" ]]; then
     echo "Bare repo exists. Skipping initialization."
   else
@@ -168,7 +172,8 @@ prepare_repo() {
 
 select_hook() {
   (( CURRENT_STEP > 3 )) && return
-  echo; printf "=== Step 3: Select hook type ===\n"
+  echo; printf "=== Step 3: Select hook type ===
+"
   echo "1) Specific branch"
   echo "2) Any branch"
   echo "3) Any branch & prune others"
@@ -191,7 +196,7 @@ select_hook() {
         [[ ! "${conf}" =~ ^[Yy] ]] && { echo "Aborting."; exit 1; }
       fi
       HOOK_SCRIPT=$(gen_hook_specific)
-      ;;  
+      ;;
     "Any branch") HOOK_SCRIPT=$(gen_hook_any);;
     *) HOOK_SCRIPT=$(gen_hook_prune);;
   esac
@@ -200,16 +205,19 @@ select_hook() {
 
 install_hook() {
   (( CURRENT_STEP > 4 )) && return
-  echo; printf "=== Step 4: Install hook ===\n"
+  echo; printf "=== Step 4: Install hook ===
+"
   HOOK_PATH="$BARE_DIR/hooks/post-receive"
   mkdir -p "$(dirname "$HOOK_PATH")"
-  printf "%s\n" "$HOOK_SCRIPT" > "$HOOK_PATH"
+  printf "%s
+" "$HOOK_SCRIPT" > "$HOOK_PATH"
   chmod +x "$HOOK_PATH"
   # Strip CRLF
   if command -v dos2unix >/dev/null 2>&1; then
     dos2unix "$HOOK_PATH" >/dev/null
   else
-    tr -d '\r' < "$HOOK_PATH" >"$HOOK_PATH.tmp" && mv "$HOOK_PATH.tmp" "$HOOK_PATH"
+    tr -d '
+' < "$HOOK_PATH" >"$HOOK_PATH.tmp" && mv "$HOOK_PATH.tmp" "$HOOK_PATH"
   fi
   echo "Hook installed at $HOOK_PATH"
   save_state 4; CURRENT_STEP=5
@@ -217,7 +225,8 @@ install_hook() {
 
 finalize() {
   (( CURRENT_STEP > 5 )) && return
-  echo; printf "=== Step 5: Complete ===\n"
+  echo; printf "=== Step 5: Complete ===
+"
   local pathp shortp
   pathp="${BARE_DIR#/}"
   shortp="~/${BARE_DIR#${HOME}/}"
