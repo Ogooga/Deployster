@@ -215,7 +215,8 @@ prompt_required() {
     else
       prompt_line="${BOLD}${prompt_text}${RESET}: "
     fi
-    read -e -p "$prompt_line" input
+    echo -ne "$prompt_line"
+    read -e input
     [[ "$input" == "undo" ]] && { undo_step; return 1; }
     if [[ -n "$default" && -z "$input" ]]; then input="$default"; fi
     if [[ -z "$input" ]]; then
