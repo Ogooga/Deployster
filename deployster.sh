@@ -215,6 +215,7 @@ prompt_required() {
     else
       prompt_line="${BOLD}${prompt_text}${RESET}: "
     fi
+    # Print color prompt using variables, then read input
     echo -ne "$prompt_line"
     read -e input
     [[ "$input" == "undo" ]] && { undo_step; return 1; }
