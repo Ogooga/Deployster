@@ -223,7 +223,7 @@ install_hook() {
 "
   HOOK_PATH="$BARE_DIR/hooks/post-receive"
   mkdir -p "$(dirname "$HOOK_PATH")"
-  printf "%s" "$HOOK_SCRIPT" > "$HOOK_PATH"
+  printf '%s' "$HOOK_SCRIPT" > "$HOOK_PATH"
   chmod +x "$HOOK_PATH"
   # Strip CRLF
   if command -v dos2unix >/dev/null 2>&1; then
