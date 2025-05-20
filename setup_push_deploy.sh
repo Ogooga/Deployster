@@ -224,13 +224,24 @@ install_hook() {
   HOOK_PATH="$BARE_DIR/hooks/post-receive"
   mkdir -p "$(dirname "$HOOK_PATH")"
   $HOOK_GENERATOR > "$HOOK_PATH"
-  chmod +x "$HOOK_PATH"
+
   # Strip CRLF
   if command -v dos2unix >/dev/null 2>&1; then
     dos2unix "$HOOK_PATH" >/dev/null
   else
     tr -d '\r' < "$HOOK_PATH" > "$HOOK_PATH.tmp" && mv "$HOOK_PATH.tmp" "$HOOK_PATH"
   fi
+
+  chmod 755 "$HOOK_PATH"
+  if [[ ! -x "$HOOK_PATH" ]]; then
+    echo "ERROR: Could not set executable permissions for $HOOK_PATH" >&2
+    exit 1
+  fi
+  owner=$(stat -c %U "$HOOK_PATH")
+  if [[ "$owner" != "$USER_NAME" ]]; then
+    echo "WARNING: $HOOK_PATH is not owned by $USER_NAME. Ownership: $owner"
+  fi
+
   echo "Hook installed at $HOOK_PATH"
   save_state 4; CURRENT_STEP=5
 }
@@ -244,8 +255,11 @@ finalize() {
   shortp="~/${BARE_DIR#${HOME}/}"
   printf -v FULL_URL "ssh://%s@%s/%s" "$USER_NAME" "$HOST_FQDN" "$pathp"
   printf -v SHORT_URL "ssh://%s@%s/%s" "$USER_NAME" "$HOST_FQDN" "$shortp"
+  echo ""
   echo "Add remote: git remote add production $FULL_URL"
+  echo ""
   echo "Or shorthand: git remote add production $SHORT_URL"
+  echo ""
   echo "Deploy via: git push production ${BRANCH:-<branch>}"
   clear_state
 }
