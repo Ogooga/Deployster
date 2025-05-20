@@ -157,8 +157,8 @@ configure() {
     done
   fi
   if (( CURRENT_STEP <= 1 )); then
-    prompt_required REPO_ROOT "Bare repo root folder" "$HOME/.gitrepo"
-    prompt_required WORK_TREE "Deployment target folder" "$HOME/public_html"
+    prompt_required REPO_ROOT "Bare repo root folder (full folder path)" "$HOME/.gitrepo"
+    prompt_required WORK_TREE "Deployment target folder (full folder path)" "$HOME/public_html"
     save_state 1; CURRENT_STEP=2
   fi
 }
@@ -178,6 +178,7 @@ prepare_repo() {
     echo "Bare repo exists. Skipping initialization."
   else
     mkdir -p "$BARE_DIR"
+    echo ""
     git init --bare "$BARE_DIR"
     echo "Initialized bare repo."
   fi
