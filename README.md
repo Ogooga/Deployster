@@ -1,6 +1,6 @@
-# Push-to-Deploy Setup Script
+# Deployster: Effortless Push-to-Deploy Git Setup Wizard
 
-A modern Bash wizard to automate initializing a **bare Git repository** on your target server, configuring a secure `post-receive` deployment hook, and providing local Git commands for easy push-to-deploy workflows. This script is cPanel-friendly but works on any modern Linux system with SSH access.
+*A modern Bash wizard to automate initializing a **bare Git repository** on your target server, set up a secure `post-receive` deployment hook, and provide ready-to-use Git commands for seamless push-to-deploy workflows. Deployster works with cPanel or any modern Linux system with SSH access.*
 
 ---
 
@@ -16,7 +16,7 @@ A modern Bash wizard to automate initializing a **bare Git repository** on your 
 * **Inline help:** Type `h` at menus for context-sensitive help.
 * **CRLF stripping:** Ensures hooks are safe from DOS line endings.
 * **Environment checks:** Fails early with clear messages if required tools or permissions are missing.
-* **Clean separation:** All config/state/log files are kept in `~/.push_deploy/`.
+* **Clean separation:** All config/state/log files are kept in `~/.deployster/`.
 * **Recovery on interrupt:** Ctrl+C lets you save or discard partial progress.
 * **No root required:** Warns against running as root, and validates user permissions.
 
@@ -33,7 +33,7 @@ A modern Bash wizard to automate initializing a **bare Git repository** on your 
 * Local Git client on your workstation
 * (Recommended) `dos2unix` for line-ending safety
 
-> **Note:** You must have your SSH public key added/authorized for your shell user before you can push code. You do *not* need it to run the setup wizard itself.
+> **Note:** You must have your SSH public key added/authorized for your shell user before you can push code. You do *not* need it to run the Deployster wizard itself.
 
 ---
 
@@ -42,8 +42,8 @@ A modern Bash wizard to automate initializing a **bare Git repository** on your 
 1. **Download** the script to your server (as the user you want to deploy as):
 
    ```bash
-   wget https://raw.githubusercontent.com/Ogooga/setup_push_deploy/main/setup_push_deploy.sh
-   chmod +x setup_push_deploy.sh
+   wget https://raw.githubusercontent.com/Ogooga/Deployster/main/deployster.sh
+   chmod +x deployster.sh
    ```
 
 2. **(Optional):** Copy to a folder in your PATH (e.g. `~/bin/`)
@@ -53,11 +53,11 @@ A modern Bash wizard to automate initializing a **bare Git repository** on your 
 ## Usage
 
 ```bash
-./setup_push_deploy.sh [-v|--verbose] [--log] [-h|--help]
+./deployster.sh [-v|--verbose] [--log] [-h|--help]
 ```
 
 * `-v, --verbose`    Enable verbose (debug) output
-* `--log`            Log output to a file in `~/.push_deploy/` (disables verbose on-screen debug)
+* `--log`            Log output to a file in `~/.deployster/` (disables verbose on-screen debug)
 * `-h, --help`       Show usage and exit
 
 ### Guided Workflow
@@ -76,10 +76,10 @@ The wizard will prompt you step-by-step:
 6. **Review summary and confirm**
 7. **Hook install & finish** (existing hooks are backed up automatically)
 
-### Example:
+### Example
 
 ```bash
-$ ./setup_push_deploy.sh
+$ ./deployster.sh
 ```
 
 * Answer prompts (use Enter for defaults, or type `undo` to go back)
@@ -101,7 +101,7 @@ $ ./setup_push_deploy.sh
 * **Undo:** At any prompt, type `undo` to go back a step
 * **Help:** At main menus, type `h` for context-sensitive info
 * **Verbose:** Use `-v` for debug output
-* **Log:** Use `--log` to save a session log in `~/.push_deploy/`
+* **Log:** Use `--log` to save a session log in `~/.deployster/`
 * **Resume:** If interrupted, script will offer to resume or edit previous setup
 * **Edit:** When resuming, you may interactively edit paths/branch before continuing
 * **Safe confirmation:** Always see a summary before the final install
@@ -126,12 +126,12 @@ $ ./setup_push_deploy.sh
 * **Clear saved state:**
 
   ```bash
-  sed -i '/^myproject:/d' ~/.push_deploy/state
+  sed -i '/^myproject:/d' ~/.deployster/state
   ```
 * **Logs:**
-  All logs are saved in `~/.push_deploy/` if you use `--log`.
+  All logs are saved in `~/.deployster/` if you use `--log`.
 * **Manual override:**
-  You can safely edit/delete files in `~/.push_deploy/` if troubleshooting.
+  You can safely edit/delete files in `~/.deployster/` if troubleshooting.
 * **State file format:**
   One line per repo, with colon-separated `key=value` pairs.
 * **Repo root/web root:**
@@ -143,7 +143,7 @@ $ ./setup_push_deploy.sh
 
 ## Contribution Guidelines
 
-* **Bug reports, issues, and pull requests are welcome** on [GitHub](https://github.com/Ogooga/setup_push_deploy).
+* **Bug reports, issues, and pull requests are welcome** on [GitHub](https://github.com/Ogooga/Deployster).
 * Please:
 
   * Open clear issues for feature requests, bugs, or docs.
@@ -163,4 +163,4 @@ MIT License. See [LICENSE](LICENSE) for details.
 
 Made by Ogooga ([https://ogooga.com](https://ogooga.com)) with ❤️ for sysadmins, developers, and teams everywhere.
 
-For documentation, issues, and latest releases: [https://github.com/Ogooga/setup\_push\_deploy](https://github.com/Ogooga/setup_push_deploy)
+For documentation, issues, and latest releases: [https://github.com/Ogooga/Deployster](https://github.com/Ogooga/Deployster)
