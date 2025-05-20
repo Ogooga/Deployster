@@ -1,234 +1,173 @@
 #!/usr/bin/env bash
 
 # push-to-deploy setup script (run on target server as cPanel user)
-# Initializes a bare Git repo, configures post-receive hook, and outputs deployment instructions.
-# Supports resuming after failures or interruptions.
+# Automates bare Git repo setup, hook installation, and deploy instructions.
+# Refactored into functions for clarity and testability.
 
 # Prevent word splitting on spaces in filenames or inputs
 OLD_IFS=$IFS
-IFS=$'
-  '
+IFS=$'\n\t'
 set -euo pipefail
-
-# Ensure IFS restored on any exit
 trap 'IFS=$OLD_IFS' EXIT
 
-# Initialize current step
+# Global vars
+STATE_FILE="$HOME/.push_deploy_state"
 CURRENT_STEP=1
 
 # Pre-flight checks
-if ! command -v git >/dev/null 2>&1; then
-  echo "ERROR: git is not installed or not in PATH. Please install Git and retry." >&2
-  exit 1
-fi
+command -v git >/dev/null 2>&1 || { echo "ERROR: git is not installed." >&2; exit 1; }
+command -v realpath >/dev/null 2>&1 || { echo "ERROR: realpath is required." >&2; exit 1; }
 
-# State file path (single file, multi-repo)
-STATE_FILE="$HOME/.push_deploy_state"
-if [[ ! -e "$STATE_FILE" ]]; then
-  touch "$STATE_FILE" 2>/dev/null || {
-    echo "ERROR: Cannot write to state file $STATE_FILE. Check directory permissions." >&2
-    exit 1
-  }
-fi
-
-# Helper to read saved step for a repo (fixed-string grep)
+# State management
 get_saved_step() {
-  grep -F "${REPO_NAME}:" "$STATE_FILE" | cut -d: -f2
+  awk -F: -v repo="$REPO_NAME" '$1==repo{print $2}' "$STATE_FILE" 2>/dev/null || :
 }
-
-# Helper to save state: update or append "repo:step"
 save_state() {
-  local step=$1 tmp
-  tmp=$(mktemp)         # portable temp file
-  grep -v -F "${REPO_NAME}:" "$STATE_FILE" > "$tmp"
-  echo "${REPO_NAME}:${step}" >> "$tmp"
+  tmp=$(mktemp --tmpdir)
+  grep -v -F "${REPO_NAME}:" "$STATE_FILE" >"$tmp" 2>/dev/null || :
+  echo "${REPO_NAME}:$1" >>"$tmp"
   mv "$tmp" "$STATE_FILE"
 }
-
-# Helper to clear state for a repo
 clear_state() {
-  local tmp
-  tmp=$(mktemp)
-  grep -v -F "${REPO_NAME}:" "$STATE_FILE" > "$tmp"
+  tmp=$(mktemp --tmpdir)
+  grep -v -F "${REPO_NAME}:" "$STATE_FILE" >"$tmp" 2>/dev/null || :
   mv "$tmp" "$STATE_FILE"
 }
 
-# 1. Gather parameters
-echo
-printf "=== Step 1: Configuration ===
-"
-DEFAULT_REPO_ROOT="$HOME/.gitrepo"
-DEFAULT_WEB_ROOT="$HOME/public_html"
-DEFAULT_BRANCH="main"
-HOST_FQDN="$(hostname -f)"
-USER_NAME="$USER"
-
-# Improved prompt: fully local variables to prevent leakage
-tprompt() {
-  local var_name="$1"
-  local prompt_text="$2"
-  local default_value="$3"
-  local input
+# Prompt helper
+prompt_required() {
+  local var_name="$1" prompt_text="$2" default="$3" input
   while true; do
-    if [[ -n "$default_value" ]]; then
-      read -p "$prompt_text [$default_value]: " input
-      input="${input:-$default_value}"
-      break
+    if [[ -n "$default" ]]; then
+      read -p "$prompt_text [$default]: " input
+      input="${input:-$default}"; break
     else
       read -p "$prompt_text: " input
-      if [[ -n "$input" ]]; then
-        break
-      else
-        echo "This value is required. Please enter a value."
-      fi
+      [[ -n "$input" ]] && break || echo "This value is required."
     fi
   done
   printf -v "$var_name" "%s" "$input"
 }
 
-# Repo name first for resume logic
-tprompt REPO_NAME "Repository name (without .git)" "myproject"
-# Check saved state
-SAVED_STEP=$(get_saved_step)
-if [[ -n "$SAVED_STEP" ]]; then
-  while true; do
-    read -p "Resume '${REPO_NAME}' from step $((SAVED_STEP+1))? (y/n): " ans
-    case "$ans" in
-      [Yy]) CURRENT_STEP=$((SAVED_STEP+1)); break;;
-      [Nn]) clear_state; CURRENT_STEP=1; break;;
-      *) echo "Enter y or n.";;
-    esac
-  done
-fi
-
-# Continue with prompts
-if (( CURRENT_STEP <= 1 )); then
-  tprompt REPO_ROOT "Bare repo root folder" "$DEFAULT_REPO_ROOT"
-  tprompt WORK_TREE "Deployment target folder" "$DEFAULT_WEB_ROOT"
-  save_state 1; CURRENT_STEP=2
-fi
-
-# Validate and normalize paths
-if command -v realpath >/dev/null 2>&1; then
-  REPO_ROOT=$(realpath -m "$REPO_ROOT")
-  WORK_TREE=$(realpath -m "$WORK_TREE")
-else
-  [[ "$REPO_ROOT" != /* ]] && REPO_ROOT="$HOME/$REPO_ROOT"
-  [[ "$WORK_TREE" != /* ]] && WORK_TREE="$HOME/$WORK_TREE"
-fi
-BARE_DIR="$REPO_ROOT/${REPO_NAME}.git"
-if [[ "$BARE_DIR" == "/" ]]; then
-  echo "ERROR: BARE_DIR cannot be '/'. Please choose different values." >&2
-  exit 1
-fi
-
-# 2. Prepare bare repository
-if (( CURRENT_STEP <= 2 )); then
-  echo
-  printf "=== Step 2: Prepare bare repository ===
-"
-  printf "Location: %s
-" "$BARE_DIR"
-  if [[ -d "$BARE_DIR" ]]; then
-    echo "Bare repo exists. Skipping initialization."
-  else
-    mkdir -p "$BARE_DIR"
-    git init --bare "$BARE_DIR"
-    echo "Initialized bare repo."
-  fi
-  save_state 2; CURRENT_STEP=3
-fi
-
-# 3. Choose and build post-receive hook
-if (( CURRENT_STEP <= 3 )); then
-  echo
-  printf "=== Step 3: Select hook type ===
-"
-  options=("Specific branch" "Any branch" "Any branch & delete others")
-  for i in "${!options[@]}"; do
-    printf "%d) %s
-" $((i+1)) "${options[i]}"
-  done
-  while true; do
-    read -p "Choice (1-${#options[@]}): " c
-    if (( c>=1 && c<=${#options[@]} )); then break; else echo "Invalid choice."; fi
-  done
-  HOOK_TYPE="${options[c-1]}"
-
-  case "$HOOK_TYPE" in
-    "Specific branch")
-      tprompt BRANCH "Branch to deploy" "$DEFAULT_BRANCH"
-      HOOK_SCRIPT=$(cat <<EOF
+# Hook generators
+gen_hook_specific() {
+  cat <<EOF
 #!/bin/sh
 while read old new ref; do
   [[ "\$ref" = "refs/heads/$BRANCH" ]] && git --work-tree="$WORK_TREE" checkout -f "$BRANCH"
 done
 EOF
-)
-      ;;
-    "Any branch")
-      HOOK_SCRIPT=$(cat <<EOF
+}
+gen_hook_any() {
+  cat <<'EOF'
 #!/bin/sh
 while read old new ref; do
-  branch=\$(git rev-parse --abbrev-ref "\$ref")
-  git --work-tree="$WORK_TREE" checkout -f "\$branch"
+  branch=$(git rev-parse --abbrev-ref "$ref")
+  git --work-tree="${WORK_TREE}" checkout -f "$branch"
 done
 EOF
-)
-      ;;
-    "Any branch & delete others")
-      HOOK_SCRIPT=$(cat <<EOF
+}
+gen_hook_prune() {
+  cat <<'EOF'
 #!/bin/sh
 echo "WARNING: deletes other branches"
-if [[ ! -d "refs/heads" ]]; then echo "No refs/heads found." >&2; exit 1; fi
+if [[ ! -d "refs/heads" ]]; then echo "No refs/heads" >&2; exit 1; fi
 while read old new ref; do
-  branch=\$(git rev-parse --abbrev-ref "\$ref")
-  git --work-tree="$WORK_TREE" checkout -f "\$branch"
+  branch=$(git rev-parse --abbrev-ref "$ref")
+  git --work-tree="${WORK_TREE}" checkout -f "$branch"
   git for-each-ref --format="%(refname:short)" refs/heads | while IFS= read -r head; do
-    [[ "\$head" != "\$branch" ]] && git update-ref -d "refs/heads/\$head"
+    [[ "$head" != "$branch" ]] && git update-ref -d "refs/heads/$head"
   done
 done
 EOF
-)
-      ;;
+}
+
+# Steps as functions
+configure() {
+  echo; printf "=== Step 1: Configuration ===\n"
+  DEFAULT_REPO_ROOT="$HOME/.gitrepo"
+  DEFAULT_WEB_ROOT="$HOME/public_html"
+  DEFAULT_BRANCH="main"
+  HOST_FQDN="$(hostname -f)"
+  USER_NAME="$USER"
+
+  prompt_required REPO_NAME "Repository name (without .git)" "myproject"
+  [ -n "$STATE_FILE" ] && touch "$STATE_FILE"
+  local saved; saved=$(get_saved_step)
+  if [[ -n "$saved" ]]; then
+    while true; do
+      read -p "Resume $REPO_NAME from step $((saved+1))? (y/n): " ans
+      case "$ans" in
+        [Yy]) CURRENT_STEP=$((saved+1)); break;;
+        [Nn]) clear_state; break;;
+      esac
+    done
+  fi
+  if (( CURRENT_STEP <= 1 )); then
+    prompt_required REPO_ROOT "Bare repo root folder" "$DEFAULT_REPO_ROOT"
+    prompt_required WORK_TREE "Deployment target folder" "$DEFAULT_WEB_ROOT"
+    save_state 1; CURRENT_STEP=2
+  fi
+}
+
+prepare_repo() {
+  (( CURRENT_STEP > 2 )) && return
+  echo; printf "=== Step 2: Prepare bare repository ===\n"
+  REPO_ROOT=$(realpath -m "$REPO_ROOT")
+  WORK_TREE=$(realpath -m "$WORK_TREE")
+  BARE_DIR="$REPO_ROOT/${REPO_NAME}.git"
+  [[ "$BARE_DIR" == "/" ]] && { echo "Invalid BARE_DIR." >&2; exit 1; }
+  printf "Location: %s\n" "$BARE_DIR"
+  if [[ -d "$BARE_DIR" ]]; then
+    echo "Skipping init."; else
+    mkdir -p "$BARE_DIR"; git init --bare "$BARE_DIR"; echo "Initialized."; fi
+  save_state 2; CURRENT_STEP=3
+}
+
+select_hook() {
+  (( CURRENT_STEP > 3 )) && return
+  echo; printf "=== Step 3: Select hook type ===\n"
+  PS3="Choose hook: "
+  select HOOK_TYPE in "Specific branch" "Any branch" "Any branch & delete others"; do
+    [[ -n "$HOOK_TYPE" ]] && break; done
+  case "$HOOK_TYPE" in
+    "Specific branch") prompt_required BRANCH "Branch" "$DEFAULT_BRANCH"; HOOK_SCRIPT=$(gen_hook_specific);;
+    "Any branch") HOOK_SCRIPT=$(gen_hook_any);;
+    *) HOOK_SCRIPT=$(gen_hook_prune);;
   esac
   save_state 3; CURRENT_STEP=4
-fi
+}
 
-# 4. Install post-receive hook
-if (( CURRENT_STEP <= 4 )); then
-  echo
-  printf "=== Step 4: Install hook ===
-"
+install_hook() {
+  (( CURRENT_STEP > 4 )) && return
+  echo; printf "=== Step 4: Install hook ===\n"
   HOOK_PATH="$BARE_DIR/hooks/post-receive"
   mkdir -p "$(dirname "$HOOK_PATH")"
-  printf "%s
-" "$HOOK_SCRIPT" > "$HOOK_PATH"
+  printf "%s\n" "$HOOK_SCRIPT" > "$HOOK_PATH"
   chmod +x "$HOOK_PATH"
-  # Strip CRLF line endings if present
-  if command -v dos2unix >/dev/null 2>&1; then
-    dos2unix "$HOOK_PATH" &>/dev/null
-  else
-    sed -i.bak 's/
-$//' "$HOOK_PATH" && rm "$HOOK_PATH.bak"
-  fi
-  echo "Hook installed at $HOOK_PATH"
+  # Strip CRLF
+  if command -v dos2unix >/dev/null; then dos2unix "$HOOK_PATH"; else tr -d '\r' < "$HOOK_PATH" >"$HOOK_PATH.tmp" && mv "$HOOK_PATH.tmp" "$HOOK_PATH"; fi
+  echo "Installed at $HOOK_PATH"
   save_state 4; CURRENT_STEP=5
-fi
+}
 
-# 5. Final instructions
-if (( CURRENT_STEP <= 5 )); then
-  echo
-  printf "=== Step 5: Complete ===
-"
-  # Construct URLs safely
-  PATH_PART="${BARE_DIR#/}"
-  printf -v FULL_URL "ssh://%s@%s/%s" "$USER_NAME" "$HOST_FQDN" "$PATH_PART"
-  SHORT_PART="~/${BARE_DIR#${HOME}/}"
-  printf -v SHORTHAND_URL "ssh://%s@%s/%s" "$USER_NAME" "$HOST_FQDN" "$SHORT_PART"
-
-  echo "Add remote: git remote add production $FULL_URL"
-  echo "Or shorthand: git remote add production $SHORTHAND_URL"
-  echo "Deploy via: git push production ${BRANCH:-<branch>}"
+finalize() {
+  (( CURRENT_STEP > 5 )) && return
+  echo; printf "=== Step 5: Complete ===\n"
+  local pathp shortp
+  pathp="${BARE_DIR#/}"
+  shortp="~/${BARE_DIR#${HOME}/}"
+  printf -v FULL_URL "ssh://%s@%s/%s" "$USER_NAME" "$HOST_FQDN" "$pathp"
+  printf -v SHORT_URL "ssh://%s@%s/%s" "$USER_NAME" "$HOST_FQDN" "$shortp"
+  echo "git remote add production $FULL_URL"
+  echo "git remote add production $SHORT_URL"
+  echo "git push production ${BRANCH:-<branch>}"
   clear_state
-fi
+}
+
+# Main
+configure
+prepare_repo
+select_hook
+install_hook
+finalize
