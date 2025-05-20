@@ -36,37 +36,34 @@ log() {
 STATE_FILE="$HOME/.push_deploy_state"
 CURRENT_STEP=1
 
-if command -v realpath >/dev/null 2>&1; then
-  PATH_RESOLVE="realpath -m"
-elif command -v readlink >/dev/null 2>&1; then
-  PATH_RESOLVE="readlink -f"
-else
-  echo "ERROR: neither realpath nor readlink is available. Please install one of them." >&2
-  exit 1
-fi
-
 USER_NAME="$USER"
 HOST_FQDN="$(hostname -f)"
 
+# --- PATH RESOLVER ---
+resolve_path() {
+  if command -v realpath >/dev/null 2>&1; then
+    realpath "$1" 2>/dev/null || realpath -m "$1" 2>/dev/null || echo "$1"
+  elif command -v readlink >/dev/null 2>&1; then
+    readlink -f "$1" 2>/dev/null || echo "$1"
+  else
+    echo "$1"
+  fi
+}
+
 # --- STATE MANAGEMENT ---
-# Save all relevant step variables in state file, as colon-separated key=val pairs
 save_state() {
   local step=$1 tmp
   tmp=$(mktemp --tmpdir)
   grep -v -F "${REPO_NAME}:" "$STATE_FILE" >"$tmp" 2>/dev/null || :
-  # Store all step variables as fields
   echo "${REPO_NAME}:step=${step}:REPO_ROOT=${REPO_ROOT:-}:WORK_TREE=${WORK_TREE:-}:BRANCH=${BRANCH:-}:HOOK_TYPE=${HOOK_TYPE:-}" >>"$tmp"
   mv "$tmp" "$STATE_FILE"
   log "Saved state $step for $REPO_NAME"
 }
 
-# Parse key=val pairs from state file for REPO_NAME
 restore_state_vars() {
   local line key val pair
   line=$(grep -F "${REPO_NAME}:" "$STATE_FILE" 2>/dev/null || true)
-  # Remove leading REPO_NAME:
   line=${line#${REPO_NAME}:}
-  # Now process key=val pairs
   IFS=: read -ra pairs <<< "$line"
   for pair in "${pairs[@]}"; do
     key=${pair%%=*}
@@ -90,7 +87,6 @@ clear_state() {
   log "Cleared state for $REPO_NAME"
 }
 
-# --- PROMPT HELPER ---
 prompt_required() {
   local var_name="$1" prompt_text="$2" default="$3" input
   while true; do
@@ -106,7 +102,6 @@ prompt_required() {
   log "$var_name set to ${!var_name}"
 }
 
-# --- HOOK GENERATORS ---
 gen_hook_specific() {
   cat <<EOF
 #!/bin/sh
@@ -153,8 +148,6 @@ done
 EOF
 }
 
-# --- STEPS ---
-
 configure() {
   echo; printf "=== Step 1: Configuration ===\n"
   prompt_required REPO_NAME "Repository name (without .git)" "myproject"
@@ -183,8 +176,8 @@ configure() {
 prepare_repo() {
   (( CURRENT_STEP > 2 )) && return
   echo; printf "=== Step 2: Prepare bare repository ===\n"
-  REPO_ROOT=$($PATH_RESOLVE "$REPO_ROOT")
-  WORK_TREE=$($PATH_RESOLVE "$WORK_TREE")
+  REPO_ROOT=$(resolve_path "$REPO_ROOT")
+  WORK_TREE=$(resolve_path "$WORK_TREE")
   log "Resolved REPO_ROOT to $REPO_ROOT, WORK_TREE to $WORK_TREE"
   BARE_DIR="$REPO_ROOT/${REPO_NAME}.git"
   [[ "$BARE_DIR" == "/" ]] && { echo "ERROR: BARE_DIR cannot be '/'." >&2; exit 1; }
@@ -207,8 +200,8 @@ select_hook() {
   # Restore variables if resuming after step 2
   REPO_ROOT=${REPO_ROOT:-$HOME/.gitrepo}
   WORK_TREE=${WORK_TREE:-$HOME/public_html}
-  REPO_ROOT=$($PATH_RESOLVE "$REPO_ROOT")
-  WORK_TREE=$($PATH_RESOLVE "$WORK_TREE")
+  REPO_ROOT=$(resolve_path "$REPO_ROOT")
+  WORK_TREE=$(resolve_path "$WORK_TREE")
   BARE_DIR="$REPO_ROOT/${REPO_NAME}.git"
   echo; printf "=== Step 3: Select hook type ===\n"
   echo "1) Specific branch"
@@ -226,7 +219,6 @@ select_hook() {
   case "$HOOK_TYPE" in
     "Specific branch")
       prompt_required BRANCH "Branch to deploy" "${BRANCH:-main}"
-      # Validate branch exists in bare repo
       if ! git --git-dir="$BARE_DIR" show-ref --verify --quiet "refs/heads/$BRANCH"; then
         echo "WARNING: Branch '$BRANCH' not found in bare repo. It will be created on first push."
         read -p "Continue anyway? (y/n): " conf
@@ -246,15 +238,14 @@ install_hook() {
   # Restore variables if resuming after step 3
   REPO_ROOT=${REPO_ROOT:-$HOME/.gitrepo}
   WORK_TREE=${WORK_TREE:-$HOME/public_html}
-  REPO_ROOT=$($PATH_RESOLVE "$REPO_ROOT")
-  WORK_TREE=$($PATH_RESOLVE "$WORK_TREE")
+  REPO_ROOT=$(resolve_path "$REPO_ROOT")
+  WORK_TREE=$(resolve_path "$WORK_TREE")
   BARE_DIR="$REPO_ROOT/${REPO_NAME}.git"
   echo; printf "=== Step 4: Install hook ===\n"
   HOOK_PATH="$BARE_DIR/hooks/post-receive"
   mkdir -p "$(dirname "$HOOK_PATH")"
   $HOOK_GENERATOR > "$HOOK_PATH"
 
-  # Strip CRLF
   if command -v dos2unix >/dev/null 2>&1; then
     dos2unix "$HOOK_PATH" >/dev/null
   else
@@ -281,8 +272,8 @@ finalize() {
   # Restore variables if resuming after step 4
   REPO_ROOT=${REPO_ROOT:-$HOME/.gitrepo}
   WORK_TREE=${WORK_TREE:-$HOME/public_html}
-  REPO_ROOT=$($PATH_RESOLVE "$REPO_ROOT")
-  WORK_TREE=$($PATH_RESOLVE "$WORK_TREE")
+  REPO_ROOT=$(resolve_path "$REPO_ROOT")
+  WORK_TREE=$(resolve_path "$WORK_TREE")
   BARE_DIR="$REPO_ROOT/${REPO_NAME}.git"
   echo; printf "=== Step 5: Complete ===\n"
   local pathp shortp
