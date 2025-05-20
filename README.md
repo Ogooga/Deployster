@@ -7,7 +7,9 @@ This Bash script automates initializing a bare Git repository on your target ser
 - A user account with SSH access to the server (e.g., cPanel user).
 - Git installed on the server.
 - Either **`realpath`** or **`readlink -f`** installed for path normalization.
-- SSH key already added/authorized in your cPanel **SSH Access**.
+
+You must have your SSH public key added/authorized in your cPanel account before you can push code to the server using Git. If you skip this step, `git push` will fail.
+The setup script itself can be run from the server without SSH key setup, but actual deployments require it.
 
 ## Usage
 
