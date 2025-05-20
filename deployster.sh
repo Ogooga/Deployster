@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-# push-to-deploy setup script (run on target server as cPanel user or any Linux user)
-# All state and log files are stored in ~/.push_deploy/
+# Deployster: Push-to-Deploy Git Setup Script (run on target server as cPanel user or any Linux user)
+# All state and log files are stored in ~/.deployster/
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -31,7 +31,7 @@ PROGRESS_BAR=(
 # Banner and UI functions for improved user experience
 banner() {
   echo -e "$SEPARATOR"
-  echo -e "${BOLD}${CYAN}      Push-to-Deploy Git Setup Wizard      ${RESET}"
+  echo -e "${BOLD}${CYAN}            Deployster Setup Wizard         ${RESET}"
   echo -e "$SEPARATOR"
   echo -e "${RESET}Automates bare Git repo and post-receive hook setup."
   echo
@@ -53,13 +53,13 @@ success(){ echo -e "${GREEN}$*${RESET}"; }
 prompt() { echo -en "${BOLD}$*${RESET}"; }
 
 # --- SETUP WORKDIR FOR STATE AND LOG FILES ---
-PUSH_DEPLOY_DIR="$HOME/.push_deploy"
-mkdir -p "$PUSH_DEPLOY_DIR"
+DEPLOYSTER_DIR="$HOME/.deployster"
+mkdir -p "$DEPLOYSTER_DIR"
 
 VERBOSE=0
 LOG_TO_FILE=0
-LOG_FILE="$PUSH_DEPLOY_DIR/push_deploy_setup_$(date +%Y%m%d_%H%M%S).log"
-STATE_FILE="$PUSH_DEPLOY_DIR/state"
+LOG_FILE="$DEPLOYSTER_DIR/deployster_setup_$(date +%Y%m%d_%H%M%S).log"
+STATE_FILE="$DEPLOYSTER_DIR/state"
 
 # --- COMMAND-LINE HELP ---
 print_help() {
@@ -448,7 +448,7 @@ finalize() {
   echo -e "${CYAN}Add remote (for copy/paste):\n${RESET}git remote add production\t$FULL_URL"
   echo -e "${CYAN}Or shorthand:\n${RESET}git remote add production\t$SHORT_URL"
   echo -e "${CYAN}Deploy via:\n${RESET}git push production ${BRANCH:-<branch>}"
-  echo -e "${CYAN}Docs:\n${RESET}https://github.com/Ogooga/setup_push_deploy"
+  echo -e "${CYAN}Docs:\n${RESET}https://github.com/Ogooga/Deployster"
   clear_state
 }
 
