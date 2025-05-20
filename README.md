@@ -34,8 +34,6 @@ Upon completion, copy one of the suggested `git remote add` commands into your l
 
 ```bash
 git remote add production ssh://user@host/~/.gitrepo/<repo>.git
-# or the home-shorthand form:
-git remote add production ssh://user@host/~/\.gitrepo/<repo>.git
 ```
 
 Then deploy with:
