@@ -1,65 +1,166 @@
 # Push-to-Deploy Setup Script
 
-This Bash script automates initializing a bare Git repository on your target server, configuring a `post-receive` hook for automated deployments, and prints local Git commands for easy setup. It supports resuming an interrupted setup.
+A modern Bash wizard to automate initializing a **bare Git repository** on your target server, configuring a secure `post-receive` deployment hook, and providing local Git commands for easy push-to-deploy workflows. This script is cPanel-friendly but works on any modern Linux system with SSH access.
 
-## Prerequisites
+---
 
-- A user account with SSH access to the server (e.g., cPanel user).
-- Git installed on the server.
-- Either **`realpath`** or **`readlink -f`** installed for path normalization.
+## Features
 
-You must have your SSH public key added/authorized in your cPanel account before you can push code to the server using Git. If you skip this step, `git push` will fail.
-The setup script itself can be run from the server without SSH key setup, but actual deployments require it.
+* **Interactive stepper UI:** Clean, colored, user-friendly prompts with progress indicators.
+* **Automatic resume:** Detects incomplete setups and lets you resume, edit, or start over.
+* **Undo at each step:** Type `undo` at most prompts to go back to the previous step.
+* **Multi-repo state:** Tracks setup progress for multiple repositories.
+* **Robust input validation:** Checks branch names, paths, permissions, and prevents unsafe destinations.
+* **Modern logging:** Verbose and/or file-based logs, with easy troubleshooting.
+* **Automatic backup:** Any existing Git hooks are automatically backed up before overwrite.
+* **Inline help:** Type `h` at menus for context-sensitive help.
+* **CRLF stripping:** Ensures hooks are safe from DOS line endings.
+* **Environment checks:** Fails early with clear messages if required tools or permissions are missing.
+* **Clean separation:** All config/state/log files are kept in `~/.push_deploy/`.
+* **Recovery on interrupt:** Ctrl+C lets you save or discard partial progress.
+* **No root required:** Warns against running as root, and validates user permissions.
+
+---
+
+## Requirements
+
+* **Linux server** (cPanel or non-cPanel) with:
+
+  * Bash 4.x+
+  * Git 2.11+
+  * SSH access (with authorized public key)
+  * Either `realpath` or `readlink -f` (for robust path handling)
+* Local Git client on your workstation
+* (Recommended) `dos2unix` for line-ending safety
+
+> **Note:** You must have your SSH public key added/authorized for your shell user before you can push code. You do *not* need it to run the setup wizard itself.
+
+---
+
+## Install
+
+1. **Download** the script to your server (as the user you want to deploy as):
+
+   ```bash
+   wget https://raw.githubusercontent.com/Ogooga/setup_push_deploy/main/setup_push_deploy.sh
+   chmod +x setup_push_deploy.sh
+   ```
+
+2. **(Optional):** Copy to a folder in your PATH (e.g. `~/bin/`)
+
+---
 
 ## Usage
 
 ```bash
-chmod +x setup_push_deploy.sh
-./setup_push_deploy.sh [-v] [-h]
+./setup_push_deploy.sh [-v|--verbose] [--log] [-h|--help]
 ```
 
-- `-v`: enable verbose (debug) output
-- `-h`: show this help message and exit
+* `-v, --verbose`    Enable verbose (debug) output
+* `--log`            Log output to a file in `~/.push_deploy/` (disables verbose on-screen debug)
+* `-h, --help`       Show usage and exit
 
-Follow the interactive prompts to:
+### Guided Workflow
 
-1. Specify a repository name.
-2. Choose to resume or restart a previous partial setup.
-3. Define the bare repo path (`~/.gitrepo/<repo>.git` by default).
-4. Select a deployment strategy:
-   - Specific branch (with sanity-check warning if the branch doesn’t yet exist)
-   - Any branch
-   - Any branch + prune others
-5. Confirm and create the bare repo, install the hook, and finalize.
+The wizard will prompt you step-by-step:
 
-Upon completion, copy one of the suggested `git remote add` commands into your local project:
+1. **Repository name** (used for folder names and tracking)
+2. **Resume/edit/start over** if previous state detected
+3. **Bare repo path** (default: `~/.gitrepo/<name>.git`)
+4. **Deploy target** (absolute path to your project folder)
+5. **Deployment strategy**:
+
+   * 1: **Specific branch** (recommended for production)
+   * 2: Any branch (for dev/test)
+   * 3: Any branch + prune (experimental, not for production)
+6. **Review summary and confirm**
+7. **Hook install & finish** (existing hooks are backed up automatically)
+
+### Example:
 
 ```bash
-git remote add production ssh://user@host/~/.gitrepo/<repo>.git
+$ ./setup_push_deploy.sh
 ```
 
-Then deploy with:
+* Answer prompts (use Enter for defaults, or type `undo` to go back)
+* At completion, copy/paste the `git remote add` command to your local workstation:
 
-```bash
-git push production <branch>
-```
+  ```bash
+  git remote add production ssh://user@host/~/.gitrepo/myproject.git
+  ```
+* Deploy with:
 
-## Features
+  ```bash
+  git push production master
+  ```
 
-- **Automatic resume**: Detects partial setups and lets you continue or restart.
-- **Multi-repo state**: Tracks progress for multiple repositories in one state file.
-- **Verbose logging (`-v`)**: See debug output to troubleshoot.
-- **Branch validation**: Warns if your chosen branch doesn’t yet exist in the bare repo.
-- **Robust input validation**: Enforces required inputs and valid menu selections.
-- **CRLF stripping**: Ensures `post-receive` hooks run without DOS line-ending issues.
-- **Safe defaults**: Uses sensible defaults for paths, with absolute-path normalization via `realpath`/`readlink`.
+---
 
-## Advanced
+## Options & Commands
 
-- Clear saved progress for a repo by editing or deleting the state file:
+* **Undo:** At any prompt, type `undo` to go back a step
+* **Help:** At main menus, type `h` for context-sensitive info
+* **Verbose:** Use `-v` for debug output
+* **Log:** Use `--log` to save a session log in `~/.push_deploy/`
+* **Resume:** If interrupted, script will offer to resume or edit previous setup
+* **Edit:** When resuming, you may interactively edit paths/branch before continuing
+* **Safe confirmation:** Always see a summary before the final install
+* **Backups:** Previous hooks are backed up with a timestamped `.bak` extension
+* **Ctrl+C Handling:** On interrupt, choose to save, discard, or continue the setup
 
-```bash
-sed -i '/^myrepo:/d' ~/.push_deploy_state
-```
+---
 
-- Customize default repo root and web root by editing the DEFAULT_REPO_ROOT and DEFAULT_WEB_ROOT variables at the top of the script.
+## Limitations & Security
+
+* **Must NOT be run as root.** Script will warn and continue, but best practice is per-user setup.
+* **Absolute paths required** for repo and deploy folder.
+* **Do NOT use `/` as a destination.** The script checks for this and will abort.
+* **SSH key must be authorized** for your user before pushing code.
+* **Only tested on bash 4.x+**. Should work on most Linux distros. MacOS not officially supported (due to BSD differences in some commands).
+* **Default branch is `master`.**
+
+---
+
+## Advanced / Troubleshooting
+
+* **Clear saved state:**
+
+  ```bash
+  sed -i '/^myproject:/d' ~/.push_deploy/state
+  ```
+* **Logs:**
+  All logs are saved in `~/.push_deploy/` if you use `--log`.
+* **Manual override:**
+  You can safely edit/delete files in `~/.push_deploy/` if troubleshooting.
+* **State file format:**
+  One line per repo, with colon-separated `key=value` pairs.
+* **Repo root/web root:**
+  You can edit these interactively, or override defaults at setup.
+* **See the installed hook:**
+  After setup, review/edit the generated `post-receive` file in your bare repo's `hooks/` folder.
+
+---
+
+## Contribution Guidelines
+
+* **Bug reports, issues, and pull requests are welcome** on [GitHub](https://github.com/Ogooga/setup_push_deploy).
+* Please:
+
+  * Open clear issues for feature requests, bugs, or docs.
+  * Follow the code style and UX conventions in the script.
+  * Test thoroughly on non-production systems before PRs.
+  * Add comments and keep prompts clear!
+
+---
+
+## License
+
+MIT License. See [LICENSE](LICENSE) for details.
+
+---
+
+## Credits
+
+Made by Ogooga ([https://ogooga.com](https://ogooga.com)) with ❤️ for sysadmins, developers, and teams everywhere.
+
+For documentation, issues, and latest releases: [https://github.com/Ogooga/setup\_push\_deploy](https://github.com/Ogooga/setup_push_deploy)
