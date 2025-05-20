@@ -27,6 +27,8 @@ banner() {
   echo
 }
 
+maybe_clear() { (( VERBOSE )) || clear; }
+
 step_title() {
   local n=$1 total=$2 msg=$3
   echo -e "${BOLD}${CYAN}[${n}/${total}] ${msg}${RESET}"
@@ -63,8 +65,8 @@ log() {
 STATE_FILE="$HOME/.push_deploy_state"
 CURRENT_STEP=1
 
-USER_NAME="$USER"
-HOST_FQDN="$(hostname -f)"
+USER_NAME="${USER:-$(whoami)}"
+HOST_FQDN="$(hostname -f 2>/dev/null || hostname)"
 
 # --- PATH RESOLVER ---
 resolve_path() {
@@ -120,15 +122,23 @@ prompt_required() {
     if [[ -n "$default" ]]; then
       prompt "$prompt_text [${CYAN}${default}${RESET}]: "
       read input
-      input="${input:-$default}"; break
+      input="${input:-$default}"
     else
       prompt "$prompt_text: "
       read input
-      [[ -n "$input" ]] && break || warn "This value is required."
+    fi
+    if [[ -n "$input" ]]; then
+      break
+    else
+      warn "This value is required."
     fi
   done
   printf -v "$var_name" "%s" "$input"
-  log "$var_name set to ${!var_name}"
+  if [[ $(declare -p "$var_name" 2>/dev/null) ]]; then
+    log "$var_name set to [${!var_name}]"
+  else
+    log "$var_name not set"
+  fi
 }
 
 gen_hook_specific() {
@@ -178,7 +188,7 @@ EOF
 }
 
 configure() {
-  clear
+  maybe_clear
   banner
   step_title 1 5 "Configuration"
   prompt_required REPO_NAME "Repository name (without .git)" "myproject"
@@ -206,7 +216,7 @@ configure() {
 }
 
 prepare_repo() {
-  clear
+  maybe_clear
   step_title 2 5 "Prepare bare repository"
   REPO_ROOT=$(resolve_path "$REPO_ROOT")
   WORK_TREE=$(resolve_path "$WORK_TREE")
@@ -227,7 +237,7 @@ prepare_repo() {
 }
 
 select_hook() {
-  clear
+  maybe_clear
   step_title 3 5 "Select deployment hook type"
   REPO_ROOT=${REPO_ROOT:-$HOME/.gitrepo}
   WORK_TREE=${WORK_TREE:-$HOME/public_html}
@@ -265,7 +275,7 @@ select_hook() {
 }
 
 install_hook() {
-  clear
+  maybe_clear
   step_title 4 5 "Install post-receive hook"
   REPO_ROOT=${REPO_ROOT:-$HOME/.gitrepo}
   WORK_TREE=${WORK_TREE:-$HOME/public_html}
@@ -299,7 +309,7 @@ install_hook() {
 }
 
 finalize() {
-  clear
+  maybe_clear
   step_title 5 5 "Complete"
   REPO_ROOT=${REPO_ROOT:-$HOME/.gitrepo}
   WORK_TREE=${WORK_TREE:-$HOME/public_html}
