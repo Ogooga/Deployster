@@ -221,8 +221,6 @@ select_hook() {
       prompt_required BRANCH "Branch to deploy" "${BRANCH:-master}"
       if ! git --git-dir="$BARE_DIR" show-ref --verify --quiet "refs/heads/$BRANCH"; then
         echo "WARNING: Branch '$BRANCH' not found in bare repo. It will be created on first push."
-        read -p "Continue anyway? (y/n): " conf
-        [[ ! "${conf}" =~ ^[Yy] ]] && { echo "Aborting."; exit 1; }
       fi
       HOOK_GENERATOR=gen_hook_specific
       ;;
