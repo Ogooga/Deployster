@@ -42,7 +42,7 @@
 1. **Download** the script to your server (as the user you want to deploy as):
 
    ```bash
-   wget https://raw.githubusercontent.com/Ogooga/Deployster/main/deployster.sh
+   wget https://raw.githubusercontent.com/Ogooga/Deployster/master/deployster.sh
    chmod +x deployster.sh
    ```
 
