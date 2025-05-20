@@ -206,7 +206,7 @@ undo_step() {
   fi
 }
 
-# --- INPUT PROMPTS WITH 'undo' SUPPORT AND FIXED COLORS ---
+# --- INPUT PROMPTS WITH 'undo' SUPPORT, robust error handling, and color ---
 prompt_required() {
   local var_name="$1" prompt_text="$2" default="$3" input prompt_line
   while true; do
@@ -217,7 +217,10 @@ prompt_required() {
     fi
     # Print color prompt using variables, then read input
     echo -ne "$prompt_line"
-    read -e input
+    if ! read -e input; then
+      # Read error or EOF
+      return 2
+    fi
     [[ "$input" == "undo" ]] && { undo_step; return 1; }
     if [[ -n "$default" && -z "$input" ]]; then input="$default"; fi
     if [[ -z "$input" ]]; then
@@ -280,10 +283,16 @@ EOF
 # --- MAIN WIZARD STEPS ---
 
 configure() {
-  # Do not clear the screen before the first step so the banner is visible
   step_title 1 5 "Repository configuration"
-  # Prompt for repo name (with undo support)
-  while ! prompt_required REPO_NAME "Repository name (without .git)" "myproject"; do :; done
+  # Prompt for repo name (with undo support and robust error handling)
+  while true; do
+    prompt_required REPO_NAME "Repository name (without .git)" "myproject"
+    rc=$?
+    [[ $rc -eq 0 ]] && break
+    [[ $rc -eq 1 ]] && continue
+    error "Prompt error or input stream closed. Aborting."
+    exit 1
+  done
   [[ -e "$STATE_FILE" ]] || touch "$STATE_FILE"
   local saved
   saved=$(grep -F "${REPO_NAME}:" "$STATE_FILE" 2>/dev/null || true)
@@ -295,13 +304,33 @@ configure() {
     while true; do
       prompt "Resume, edit, or start over? [r/e/s]: "
       read res
-      [[ "$res" == "undo" ]] && { undo_step; return; }
+      [[ "$res" == "undo" ]] && { undo_step; continue; }
       case "$res" in
         r|R) info "Resuming from saved state."; CURRENT_STEP=$((CURRENT_STEP+1)); break;;
         e|E)
-          while ! prompt_required REPO_ROOT "Bare repo root folder (full folder path)" "${REPO_ROOT:-$HOME/.gitrepo}"; do :; done
-          while ! prompt_required WORK_TREE "Deployment target folder (full folder path)" "${WORK_TREE:-$HOME/public_html}"; do :; done
-          [[ "${HOOK_TYPE:-}" == "Specific branch" ]] && while ! prompt_required BRANCH "Branch to deploy" "${BRANCH:-master}"; do :; done
+          while true; do
+            prompt_required REPO_ROOT "Bare repo root folder (full folder path)" "${REPO_ROOT:-$HOME/.gitrepo}"
+            rc=$?
+            [[ $rc -eq 0 ]] && break
+            [[ $rc -eq 1 ]] && continue
+            error "Prompt error. Aborting."; exit 1
+          done
+          while true; do
+            prompt_required WORK_TREE "Deployment target folder (full folder path)" "${WORK_TREE:-$HOME/public_html}"
+            rc=$?
+            [[ $rc -eq 0 ]] && break
+            [[ $rc -eq 1 ]] && continue
+            error "Prompt error. Aborting."; exit 1
+          done
+          if [[ "${HOOK_TYPE:-}" == "Specific branch" ]]; then
+            while true; do
+              prompt_required BRANCH "Branch to deploy" "${BRANCH:-master}"
+              rc=$?
+              [[ $rc -eq 0 ]] && break
+              [[ $rc -eq 1 ]] && continue
+              error "Prompt error. Aborting."; exit 1
+            done
+          fi
           save_state "$CURRENT_STEP"
           info "Edited and saved. Resuming."
           CURRENT_STEP=$((CURRENT_STEP+1)); break;;
@@ -311,8 +340,20 @@ configure() {
     done
   fi
   if (( CURRENT_STEP <= 1 )); then
-    while ! prompt_required REPO_ROOT "Bare repo root folder (full folder path)" "${REPO_ROOT:-$HOME/.gitrepo}"; do :; done
-    while ! prompt_required WORK_TREE "Deployment target folder (full folder path)" "${WORK_TREE:-$HOME/public_html}"; do :; done
+    while true; do
+      prompt_required REPO_ROOT "Bare repo root folder (full folder path)" "${REPO_ROOT:-$HOME/.gitrepo}"
+      rc=$?
+      [[ $rc -eq 0 ]] && break
+      [[ $rc -eq 1 ]] && continue
+      error "Prompt error. Aborting."; exit 1
+    done
+    while true; do
+      prompt_required WORK_TREE "Deployment target folder (full folder path)" "${WORK_TREE:-$HOME/public_html}"
+      rc=$?
+      [[ $rc -eq 0 ]] && break
+      [[ $rc -eq 1 ]] && continue
+      error "Prompt error. Aborting."; exit 1
+    done
     save_state 1
     CURRENT_STEP=2
   fi
@@ -321,7 +362,6 @@ configure() {
 prepare_repo() {
   maybe_clear
   step_title 2 5 "Prepare bare repository"
-  # Create bare repo or skip if it exists
   REPO_ROOT=$(resolve_path "$REPO_ROOT")
   WORK_TREE=$(resolve_path "$WORK_TREE")
   log "Resolved REPO_ROOT to $REPO_ROOT, WORK_TREE to $WORK_TREE"
@@ -343,7 +383,6 @@ prepare_repo() {
 select_hook() {
   maybe_clear
   step_title 3 5 "Select deployment hook type"
-  # Prompt for deployment strategy
   REPO_ROOT=${REPO_ROOT:-$HOME/.gitrepo}
   WORK_TREE=${WORK_TREE:-$HOME/public_html}
   REPO_ROOT=$(resolve_path "$REPO_ROOT")
@@ -355,7 +394,7 @@ select_hook() {
   while true; do
     prompt "Choice (1-3) [h for help]: "
     read c
-    [[ "$c" == "undo" ]] && { undo_step; return; }
+    [[ "$c" == "undo" ]] && { undo_step; continue; }
     case "$c" in
       1) HOOK_TYPE="Specific branch"; break;;
       2) HOOK_TYPE="Any branch"; break;;
@@ -370,7 +409,13 @@ select_hook() {
   done
   case "$HOOK_TYPE" in
     "Specific branch")
-      while ! prompt_required BRANCH "Branch to deploy" "${BRANCH:-master}"; do :; done
+      while true; do
+        prompt_required BRANCH "Branch to deploy" "${BRANCH:-master}"
+        rc=$?
+        [[ $rc -eq 0 ]] && break
+        [[ $rc -eq 1 ]] && continue
+        error "Prompt error. Aborting."; exit 1
+      done
       if ! [[ "$BRANCH" =~ ^[A-Za-z0-9._/-]+$ ]]; then
         warn "Branch name invalid. Must match Git conventions."
         select_hook; return
@@ -391,7 +436,6 @@ select_hook() {
 install_hook() {
   maybe_clear
   step_title 4 5 "Install post-receive hook"
-  # Install (and backup if needed) the hook file
   REPO_ROOT=$(resolve_path "$REPO_ROOT")
   WORK_TREE=$(resolve_path "$WORK_TREE")
   BARE_DIR="$REPO_ROOT/${REPO_NAME}.git"
@@ -439,7 +483,7 @@ finalize() {
   print_config_summary
   prompt "${YELLOW}Proceed with installation? (y/n): ${RESET}"
   read conf
-  [[ "$conf" == "undo" ]] && { undo_step; return; }
+  [[ "$conf" == "undo" ]] && { undo_step; finalize; return; }
   [[ "$conf" =~ ^[Yy]$ ]] || { warn "Aborted at confirmation step."; exit 1; }
   REPO_ROOT=$(resolve_path "$REPO_ROOT")
   BARE_DIR="$REPO_ROOT/${REPO_NAME}.git"
