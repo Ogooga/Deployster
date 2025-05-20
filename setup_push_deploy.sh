@@ -2,7 +2,6 @@
 
 # push-to-deploy setup script (run on target server as cPanel user)
 # Automates bare Git repo setup, hook installation, and deploy instructions.
-# Refactored into functions for clarity and testability.
 
 OLD_IFS=$IFS
 IFS=$'\n\t'
@@ -10,6 +9,34 @@ set -euo pipefail
 trap 'IFS=$OLD_IFS' EXIT
 
 VERBOSE=0
+
+# --- COLORS AND UI HELPERS ---
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[1;36m'
+BOLD='\033[1m'
+RESET='\033[0m'
+
+banner() {
+  echo -e "${BOLD}${CYAN}"
+  echo "========================================="
+  echo "     Push-to-Deploy Git Setup Wizard     "
+  echo "========================================="
+  echo -e "${RESET}Automates bare Git repo and post-receive hook setup."
+  echo
+}
+
+step_title() {
+  local n=$1 total=$2 msg=$3
+  echo -e "${BOLD}${CYAN}[${n}/${total}] ${msg}${RESET}"
+}
+
+info()   { echo -e "${CYAN}$*${RESET}"; }
+warn()   { echo -e "${YELLOW}$*${RESET}"; }
+error()  { echo -e "${RED}$*${RESET}" >&2; }
+success(){ echo -e "${GREEN}$*${RESET}"; }
+prompt() { echo -en "${BOLD}$*${RESET}"; }
 
 print_help() {
   cat <<EOF
@@ -30,7 +57,7 @@ done
 shift $((OPTIND-1))
 
 log() {
-  (( VERBOSE )) && echo "[DEBUG] $*"
+  (( VERBOSE )) && info "[DEBUG] $*"
 }
 
 STATE_FILE="$HOME/.push_deploy_state"
@@ -91,11 +118,13 @@ prompt_required() {
   local var_name="$1" prompt_text="$2" default="$3" input
   while true; do
     if [[ -n "$default" ]]; then
-      read -p "$prompt_text [$default]: " input
+      prompt "$prompt_text [${CYAN}${default}${RESET}]: "
+      read input
       input="${input:-$default}"; break
     else
-      read -p "$prompt_text: " input
-      [[ -n "$input" ]] && break || echo "This value is required."
+      prompt "$prompt_text: "
+      read input
+      [[ -n "$input" ]] && break || warn "This value is required."
     fi
   done
   printf -v "$var_name" "%s" "$input"
@@ -149,7 +178,9 @@ EOF
 }
 
 configure() {
-  echo; printf "=== Step 1: Configuration ===\n"
+  clear
+  banner
+  step_title 1 5 "Configuration"
   prompt_required REPO_NAME "Repository name (without .git)" "myproject"
   [[ -e "$STATE_FILE" ]] || touch "$STATE_FILE"
   local saved
@@ -157,11 +188,12 @@ configure() {
   if [[ -n "$saved" ]]; then
     restore_state_vars
     while true; do
-      read -p "Resume $REPO_NAME from step $((CURRENT_STEP+1))? (y/n): " ans
+      prompt "${YELLOW}Resume $REPO_NAME from step $((CURRENT_STEP+1))? (y/n): ${RESET}"
+      read ans
       case "$ans" in
         [Yy]) CURRENT_STEP=$((CURRENT_STEP+1)); break;;
         [Nn]) clear_state; unset REPO_ROOT WORK_TREE BRANCH HOOK_TYPE; CURRENT_STEP=1; break;;
-        *) echo "Enter y or n.";;
+        *) warn "Enter y or n.";;
       esac
     done
   fi
@@ -174,72 +206,72 @@ configure() {
 }
 
 prepare_repo() {
-  (( CURRENT_STEP > 2 )) && return
-  echo; printf "=== Step 2: Prepare bare repository ===\n"
+  clear
+  step_title 2 5 "Prepare bare repository"
   REPO_ROOT=$(resolve_path "$REPO_ROOT")
   WORK_TREE=$(resolve_path "$WORK_TREE")
   log "Resolved REPO_ROOT to $REPO_ROOT, WORK_TREE to $WORK_TREE"
   BARE_DIR="$REPO_ROOT/${REPO_NAME}.git"
-  [[ "$BARE_DIR" == "/" ]] && { echo "ERROR: BARE_DIR cannot be '/'." >&2; exit 1; }
-  printf "Location: %s\n" "$BARE_DIR"
+  [[ "$BARE_DIR" == "/" ]] && { error "BARE_DIR cannot be '/'."; exit 1; }
+  info "Location: $BARE_DIR"
   if [[ -d "$BARE_DIR" ]]; then
-    echo "Bare repo exists. Skipping initialization."
+    warn "Bare repo exists. Skipping initialization."
   else
     mkdir -p "$BARE_DIR"
-    echo ""
     git init --bare "$BARE_DIR"
-    echo ""
-    echo "Initialized bare repo."
+    success "Initialized bare repo."
   fi
+  sleep 0.4
   save_state 2
   CURRENT_STEP=3
 }
 
 select_hook() {
-  (( CURRENT_STEP > 3 )) && return
-  # Restore variables if resuming after step 2
+  clear
+  step_title 3 5 "Select deployment hook type"
   REPO_ROOT=${REPO_ROOT:-$HOME/.gitrepo}
   WORK_TREE=${WORK_TREE:-$HOME/public_html}
   REPO_ROOT=$(resolve_path "$REPO_ROOT")
   WORK_TREE=$(resolve_path "$WORK_TREE")
   BARE_DIR="$REPO_ROOT/${REPO_NAME}.git"
-  echo; printf "=== Step 3: Select hook type ===\n"
-  echo "1) Specific branch"
-  echo "2) Any branch"
-  echo "3) Any branch & prune others"
+  info "Choose deployment mode:"
+  echo -e "${YELLOW}1)${RESET} Specific branch (recommended)"
+  echo -e "${YELLOW}2)${RESET} Any branch"
+  echo -e "${YELLOW}3)${RESET} Any branch & prune others ${RED}(danger)${RESET}"
   while true; do
-    read -p "Choice (1-3): " c
+    prompt "Choice (1-3): "
+    read c
     case "$c" in
       1) HOOK_TYPE="Specific branch"; break;;
       2) HOOK_TYPE="Any branch"; break;;
       3) HOOK_TYPE="Any branch & prune others"; break;;
-      *) echo "Invalid choice.";;
+      *) warn "Invalid choice.";;
     esac
   done
   case "$HOOK_TYPE" in
     "Specific branch")
       prompt_required BRANCH "Branch to deploy" "${BRANCH:-master}"
       if ! git --git-dir="$BARE_DIR" show-ref --verify --quiet "refs/heads/$BRANCH"; then
-        echo "WARNING: Branch '$BRANCH' not found in bare repo. It will be created on first push."
+        warn "Branch '$BRANCH' not found in bare repo. It will be created on first push."
       fi
       HOOK_GENERATOR=gen_hook_specific
       ;;
     "Any branch") HOOK_GENERATOR=gen_hook_any;;
     *) HOOK_GENERATOR=gen_hook_prune;;
   esac
+  sleep 0.4
   save_state 3
   CURRENT_STEP=4
 }
 
 install_hook() {
-  (( CURRENT_STEP > 4 )) && return
-  # Restore variables if resuming after step 3
+  clear
+  step_title 4 5 "Install post-receive hook"
   REPO_ROOT=${REPO_ROOT:-$HOME/.gitrepo}
   WORK_TREE=${WORK_TREE:-$HOME/public_html}
   REPO_ROOT=$(resolve_path "$REPO_ROOT")
   WORK_TREE=$(resolve_path "$WORK_TREE")
   BARE_DIR="$REPO_ROOT/${REPO_NAME}.git"
-  echo; printf "=== Step 4: Install hook ===\n"
   HOOK_PATH="$BARE_DIR/hooks/post-receive"
   mkdir -p "$(dirname "$HOOK_PATH")"
   $HOOK_GENERATOR > "$HOOK_PATH"
@@ -252,43 +284,49 @@ install_hook() {
 
   chmod 755 "$HOOK_PATH"
   if [[ ! -x "$HOOK_PATH" ]]; then
-    echo "ERROR: Could not set executable permissions for $HOOK_PATH" >&2
+    error "Could not set executable permissions for $HOOK_PATH"
     exit 1
   fi
   owner=$(stat -c %U "$HOOK_PATH")
   if [[ "$owner" != "$USER_NAME" ]]; then
-    echo "WARNING: $HOOK_PATH is not owned by $USER_NAME. Ownership: $owner"
+    warn "$HOOK_PATH is not owned by $USER_NAME. Ownership: $owner"
   fi
 
-  echo "Hook installed at $HOOK_PATH"
+  success "Hook installed at $HOOK_PATH"
+  sleep 0.4
   save_state 4
   CURRENT_STEP=5
 }
 
 finalize() {
-  (( CURRENT_STEP > 5 )) && return
-  # Restore variables if resuming after step 4
+  clear
+  step_title 5 5 "Complete"
   REPO_ROOT=${REPO_ROOT:-$HOME/.gitrepo}
   WORK_TREE=${WORK_TREE:-$HOME/public_html}
   REPO_ROOT=$(resolve_path "$REPO_ROOT")
   WORK_TREE=$(resolve_path "$WORK_TREE")
   BARE_DIR="$REPO_ROOT/${REPO_NAME}.git"
-  echo; printf "=== Step 5: Complete ===\n"
   local pathp shortp
   pathp="${BARE_DIR#/}"
   shortp="~/${BARE_DIR#${HOME}/}"
   printf -v FULL_URL "ssh://%s@%s/%s" "$USER_NAME" "$HOST_FQDN" "$pathp"
   printf -v SHORT_URL "ssh://%s@%s/%s" "$USER_NAME" "$HOST_FQDN" "$shortp"
   echo ""
-  echo "Add remote: git remote add production $FULL_URL"
+  info "Add remote to your local Git project:"
+  echo -e "${BOLD}git remote add production $FULL_URL${RESET}"
+  info "Or shorthand:"
+  echo -e "${BOLD}git remote add production $SHORT_URL${RESET}"
   echo ""
-  echo "Or shorthand: git remote add production $SHORT_URL"
+  info "To deploy, push your branch:"
+  echo -e "${GREEN}git push production ${BRANCH:-<branch>}${RESET}"
   echo ""
-  echo "Deploy via: git push production ${BRANCH:-<branch>}"
+  success "Setup complete! 🚀  Push to deploy is now enabled."
   clear_state
+  sleep 1
 }
 
 # Main execution
+banner
 configure
 prepare_repo
 select_hook
