@@ -110,7 +110,7 @@ gen_hook_specific() {
 GIT_WORK_TREE="$WORK_TREE"
 
 # Define the branch name
-BRANCH="$BRANCH"  # e.g., 'main', 'production', etc.
+BRANCH="$BRANCH"  # e.g., 'master', 'production', etc.
 
 # Checkout the branch on push
 while read old new ref; do
@@ -218,7 +218,7 @@ select_hook() {
   done
   case "$HOOK_TYPE" in
     "Specific branch")
-      prompt_required BRANCH "Branch to deploy" "${BRANCH:-main}"
+      prompt_required BRANCH "Branch to deploy" "${BRANCH:-master}"
       if ! git --git-dir="$BARE_DIR" show-ref --verify --quiet "refs/heads/$BRANCH"; then
         echo "WARNING: Branch '$BRANCH' not found in bare repo. It will be created on first push."
         read -p "Continue anyway? (y/n): " conf
