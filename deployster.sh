@@ -28,7 +28,6 @@ PROGRESS_BAR=(
   "[${GREEN}#####${RESET}]"
 )
 
-# Banner and UI functions for improved user experience
 banner() {
   echo -e "$SEPARATOR"
   echo -e "${BOLD}${CYAN}            Deployster Setup Wizard         ${RESET}"
@@ -40,7 +39,6 @@ maybe_clear() {
   if (( VERBOSE )); then
     return
   fi
-  # Only clear if stdout is a terminal and clear command exists
   if [[ -t 1 ]] && command -v clear >/dev/null 2>&1; then
     clear
   fi
@@ -69,7 +67,6 @@ LOG_TO_FILE=0
 LOG_FILE="$DEPLOYSTER_DIR/deployster_setup_$(date +%Y%m%d_%H%M%S).log"
 STATE_FILE="$DEPLOYSTER_DIR/state"
 
-# --- COMMAND-LINE HELP ---
 print_help() {
   cat <<EOF
 Usage: $0 [-v|--verbose] [--log] [-h|--help]
@@ -80,7 +77,6 @@ Options:
 EOF
 }
 
-# --- ARGUMENT PARSING ---
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -v|--verbose) VERBOSE=1; shift ;;
@@ -90,7 +86,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# --- LOGGING SETUP ---
 if (( LOG_TO_FILE )); then
   exec > >(tee "$LOG_FILE") 2>&1
   info "Logging to $LOG_FILE"
@@ -100,14 +95,12 @@ log() {
   (( VERBOSE )) && info "[DEBUG] $*"
 }
 
-# --- GLOBALS AND INIT ---
 CURRENT_STEP=1
 UNDO_STACK=()
 REDO_STACK=()
 USER_NAME="${USER:-$(whoami)}"
 HOST_FQDN="$(hostname -f 2>/dev/null || hostname)"
 
-# --- ENVIRONMENT AND DEPENDENCY CHECKS ---
 sys_check() {
   echo -e "$SEPARATOR"
   info "${BOLD}${UNDER}Environment checks${RESET}"
@@ -129,17 +122,15 @@ sys_check() {
   fi
 }
 
-# --- INTERRUPT/CLEANUP HANDLER ---
 INTERRUPTED=0
 trap_handler() {
   INTERRUPTED=1
   echo
   warn "${WARN_EMOJI} Interrupt received (Ctrl+C)."
-  # If state file exists for this repo, offer recovery
   if [[ -n "${REPO_NAME:-}" && -f "$STATE_FILE" && $(grep -c "^${REPO_NAME}:" "$STATE_FILE" 2>/dev/null || echo 0) -gt 0 ]]; then
     while true; do
       prompt "${YELLOW}Save partial progress and exit (s), discard and cleanup (c), or continue (r)? [s/c/r]: ${RESET}"
-      read choice
+      read choice || { error "Input stream closed. Exiting."; exit 1; }
       case "$choice" in
         s|S) info "Partial progress saved. You can resume later."; exit 130;;
         c|C) clear_state; info "State cleared. Exiting."; exit 130;;
@@ -154,7 +145,6 @@ trap_handler() {
 }
 trap trap_handler SIGINT
 
-# --- PATH RESOLUTION (realpath/readlink fallback) ---
 resolve_path() {
   if command -v realpath >/dev/null 2>&1; then
     realpath "$1" 2>/dev/null || realpath -m "$1" 2>/dev/null || echo "$1"
@@ -165,7 +155,6 @@ resolve_path() {
   fi
 }
 
-# --- STATE MANAGEMENT (persistent progress) ---
 save_state() {
   local step=$1 tmp
   tmp=$(mktemp --tmpdir)
@@ -200,7 +189,6 @@ clear_state() {
   log "Cleared state for $REPO_NAME"
 }
 
-# --- UNDO LOGIC: allow stepping back one prompt at a time ---
 undo_step() {
   if [[ ${#UNDO_STACK[@]} -gt 0 ]]; then
     local prev_step="${UNDO_STACK[-1]}"
@@ -212,7 +200,6 @@ undo_step() {
   fi
 }
 
-# --- INPUT PROMPTS WITH 'undo' SUPPORT, robust error handling, and color ---
 prompt_required() {
   local var_name="$1" prompt_text="$2" default="$3" input prompt_line
   while true; do
@@ -221,15 +208,8 @@ prompt_required() {
     else
       prompt_line="${BOLD}${prompt_text}${RESET}: "
     fi
-    set +e
     echo -ne "$prompt_line"
-    read -e input
-    local rc=$?
-    set -e
-    if [[ $rc -ne 0 ]]; then
-      error "Input stream closed. Exiting."
-      exit 1
-    fi
+    read -e input || { error "Input stream closed. Exiting."; exit 1; }
     [[ "$input" == "undo" ]] && { undo_step; return 1; }
     if [[ -n "$default" && -z "$input" ]]; then input="$default"; fi
     if [[ -z "$input" ]]; then
@@ -242,7 +222,6 @@ prompt_required() {
   done
 }
 
-# --- HOOK FILE TEMPLATES FOR GIT DEPLOYMENT ---
 gen_hook_specific() {
   cat <<EOF
 #!/bin/sh
@@ -289,8 +268,6 @@ done
 EOF
 }
 
-# --- MAIN WIZARD STEPS ---
-
 configure() {
   step_title 1 5 "Repository configuration"
   while ! prompt_required REPO_NAME "Repository name (without .git)" "myproject"; do :; done
@@ -304,14 +281,7 @@ configure() {
     echo -e "State: step=$CURRENT_STEP, REPO_ROOT=$REPO_ROOT, WORK_TREE=$WORK_TREE, BRANCH=${BRANCH:-}, HOOK_TYPE=${HOOK_TYPE:-}"
     while true; do
       prompt "Resume, edit, or start over? [r/e/s]: "
-      set +e
-      read res
-      local rc=$?
-      set -e
-      if [[ $rc -ne 0 ]]; then
-        error "Input stream closed. Exiting."
-        exit 1
-      fi
+      read res || { error "Input stream closed. Exiting."; exit 1; }
       [[ "$res" == "undo" ]] && { undo_step; return; }
       case "$res" in
         r|R) info "Resuming from saved state."; CURRENT_STEP=$((CURRENT_STEP+1)); break;;
@@ -369,14 +339,7 @@ select_hook() {
   echo "3) Any branch & prune others"
   while true; do
     prompt "Choice (1-3) [h for help]: "
-    set +e
-    read c
-    local rc=$?
-    set -e
-    if [[ $rc -ne 0 ]]; then
-      error "Input stream closed. Exiting."
-      exit 1
-    fi
+    read c || { error "Input stream closed. Exiting."; exit 1; }
     [[ "$c" == "undo" ]] && { undo_step; return; }
     case "$c" in
       1) HOOK_TYPE="Specific branch"; break;;
@@ -459,14 +422,7 @@ finalize() {
   step_title 5 5 "Complete setup"
   print_config_summary
   prompt "${YELLOW}Proceed with installation? (y/n): ${RESET}"
-  set +e
-  read conf
-  local rc=$?
-  set -e
-  if [[ $rc -ne 0 ]]; then
-    error "Input stream closed. Exiting."
-    exit 1
-  fi
+  read conf || { error "Input stream closed. Exiting."; exit 1; }
   [[ "$conf" == "undo" ]] && { undo_step; return; }
   [[ "$conf" =~ ^[Yy]$ ]] || { warn "Aborted at confirmation step."; exit 1; }
   REPO_ROOT=$(resolve_path "$REPO_ROOT")
@@ -485,7 +441,6 @@ finalize() {
   clear_state
 }
 
-# --- MAIN EXECUTION ENTRYPOINT ---
 banner
 sys_check
 configure
