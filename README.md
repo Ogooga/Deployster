@@ -10,15 +10,21 @@
 * **Automatic resume:** Detects incomplete setups and lets you resume, edit, or start over.
 * **Undo at each step:** Type `undo` at most prompts to go back to the previous step.
 * **Multi-repo state:** Tracks setup progress for multiple repositories.
-* **Robust input validation:** Checks branch names, paths, permissions, and prevents unsafe destinations.
-* **Modern logging:** Verbose and/or file-based logs, with easy troubleshooting.
+* **Robust input validation:** Checks repository/branch names, paths, permissions, and prevents unsafe destinations (`/`).
+* **Modern logging:** Verbose and/or file-based logs, with easy troubleshooting (timestamps, log levels).
 * **Automatic backup:** Any existing Git hooks are automatically backed up before overwrite.
 * **Inline help:** Type `h` at menus for context-sensitive help.
 * **CRLF stripping:** Ensures hooks are safe from DOS line endings.
 * **Environment checks:** Fails early with clear messages if required tools or permissions are missing.
 * **Clean separation:** All config/state/log files are kept in `~/.deployster/`.
-* **Recovery on interrupt:** Ctrl+C lets you save or discard partial progress.
+* **Recovery on interrupt:** Ctrl+C lets you save or discard partial progress, with proper state cleanup.
 * **No root required:** Warns against running as root, and validates user permissions.
+
+### Coming Soon / Roadmap
+
+* **Dry Run mode:** Preview actions without making permanent changes *(planned)*
+* **Windows/WSL detection and warning:** Warn if WSL or non-Linux detected *(planned)*
+* **Repo/deploy path overlap detection:** Prevent using overlapping paths *(planned)*
 
 ---
 
@@ -64,11 +70,11 @@
 
 The wizard will prompt you step-by-step:
 
-1. **Repository name** (used for folder names and tracking)
+1. **Repository name** (used for folder names and tracking; validated)
 2. **Resume/edit/start over** if previous state detected
-3. **Bare repo path** (default: `~/.gitrepo/<name>.git`)
-4. **Deploy target** (absolute path to your project folder)
-5. **Deployment strategy**:
+3. **Bare repo path** (default: `~/.gitrepo/<name>.git`, must not be `/`)
+4. **Deploy target** (absolute path to your project folder; validated, must not be `/`)
+5. **Deployment strategy:**
 
    * 1: **Specific branch** (recommended for production)
    * 2: Any branch (for dev/test)
@@ -104,20 +110,22 @@ $ ./deployster.sh
 * **Log:** Use `--log` to save a session log in `~/.deployster/`
 * **Resume:** If interrupted, script will offer to resume or edit previous setup
 * **Edit:** When resuming, you may interactively edit paths/branch before continuing
-* **Safe confirmation:** Always see a summary before the final install
+* **Safe confirmation:** Always see a summary before the final install; dangerous settings are flagged.
 * **Backups:** Previous hooks are backed up with a timestamped `.bak` extension
-* **Ctrl+C Handling:** On interrupt, choose to save, discard, or continue the setup
+* **Ctrl+C Handling:** On interrupt, choose to save, discard, or continue the setup (never leaves temp files behind)
 
 ---
 
 ## Limitations & Security
 
 * **Must NOT be run as root.** Script will warn and continue, but best practice is per-user setup.
-* **Absolute paths required** for repo and deploy folder.
+* **Absolute paths required** for repo and deploy folder (relative paths rejected).
 * **Do NOT use `/` as a destination.** The script checks for this and will abort.
+* **Bare repo and deploy target should not overlap.** *(planned, not enforced yet)*
 * **SSH key must be authorized** for your user before pushing code.
 * **Only tested on bash 4.x+**. Should work on most Linux distros. MacOS not officially supported (due to BSD differences in some commands).
 * **Default branch is `master`.**
+* **Windows/WSL:** Not officially supported. WSL detection/warnings planned, but not currently present.
 
 ---
 
