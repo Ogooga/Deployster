@@ -36,7 +36,15 @@ banner() {
   echo -e "${RESET}Automates bare Git repo and post-receive hook setup."
   echo
 }
-maybe_clear() { (( VERBOSE )) || clear; }
+maybe_clear() {
+  if (( VERBOSE )); then
+    return
+  fi
+  # Only clear if stdout is a terminal and clear command exists
+  if [[ -t 1 ]] && command -v clear >/dev/null 2>&1; then
+    clear
+  fi
+}
 
 step_title() {
   local n=$1 total=$2 msg=$3
