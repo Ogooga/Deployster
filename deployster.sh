@@ -28,6 +28,83 @@ PROGRESS_BAR=(
   "[${GREEN}#####${RESET}]"
 )
 
+# --- SETUP WORKDIR FOR STATE AND LOG FILES ---
+DEPLOYSTER_DIR="$HOME/.deployster"
+mkdir -p "$DEPLOYSTER_DIR"
+
+VERBOSE=0
+LOG_TO_FILE=0
+LOG_FILE="$DEPLOYSTER_DIR/deployster_setup_$(date +%Y%m%d_%H%M%S).log"
+STATE_FILE="$DEPLOYSTER_DIR/state"
+
+# --- COMMAND-LINE HELP ---
+print_help() {
+  cat <<EOF
+Usage: $0 [-v|--verbose] [--log] [-h|--help]
+Options:
+  -v, --verbose      Enable verbose debug output
+      --log          Log all script output to a file (implies non-verbose)
+  -h, --help         Show this help message and exit
+EOF
+}
+
+# --- ARGUMENT PARSING ---
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -v|--verbose) VERBOSE=1; shift ;;
+    --log) LOG_TO_FILE=1; VERBOSE=0; shift ;;
+    -h|--help) print_help; exit 0 ;;
+    *) print_help; exit 1 ;;
+  esac
+done
+
+# --- COLOR HANDLING FOR LOGGING AND NON-TTY ---
+USE_COLOR=1
+if (( LOG_TO_FILE )) || ! [[ -t 1 ]]; then
+  USE_COLOR=0
+fi
+if (( ! USE_COLOR )); then
+  RED=''; GREEN=''; YELLOW=''; CYAN=''; BOLD=''; UNDER=''; RESET=''
+  SEPARATOR="============================================================"
+  CHECK="✔"
+  CROSS="❌"
+  WARN_EMOJI="⚠"
+  PROGRESS_BAR=(
+    "[#    ]"
+    "[##   ]"
+    "[###  ]"
+    "[#### ]"
+    "[#####]"
+  )
+fi
+
+# --- LOGGING SETUP (MUST HAPPEN AFTER COLOR HANDLING) ---
+if (( LOG_TO_FILE )); then
+  exec > >(tee "$LOG_FILE") 2>&1
+  # Output first log message with timestamp (use log_info)
+  log_info "Logging to $LOG_FILE"
+fi
+
+# --- LOG WITH TIMESTAMPS ---
+log_ts() {
+  local level="$1"
+  shift
+  local now
+  now=$(date '+%Y-%m-%d %H:%M:%S')
+  # Output to stderr for error, stdout otherwise
+  if [[ "$level" == "ERROR" ]]; then
+    echo -e "$now [$level] $*" >&2
+  else
+    echo -e "$now [$level] $*"
+  fi
+}
+
+log_info()    { log_ts "INFO" "$@"; }
+log_warn()    { log_ts "WARN" "$@"; }
+log_error()   { log_ts "ERROR" "$@"; }
+log_success() { log_ts "OK" "$@"; }
+
+# --- UI functions ---
 banner() {
   echo -e "$SEPARATOR"
   echo -e "${BOLD}${CYAN}            Deployster Setup Wizard         ${RESET}"
@@ -52,44 +129,11 @@ step_title() {
   echo -e "$SEPARATOR"
 }
 
-info()   { echo -e "${CYAN}$*${RESET}"; }
-warn()   { echo -e "${YELLOW}$*${RESET}"; }
-error()  { echo -e "${RED}$*${RESET}" >&2; }
-success(){ echo -e "${GREEN}$*${RESET}"; }
-prompt() { echo -en "${BOLD}$*${RESET}"; }
-
-# --- SETUP WORKDIR FOR STATE AND LOG FILES ---
-DEPLOYSTER_DIR="$HOME/.deployster"
-mkdir -p "$DEPLOYSTER_DIR"
-
-VERBOSE=0
-LOG_TO_FILE=0
-LOG_FILE="$DEPLOYSTER_DIR/deployster_setup_$(date +%Y%m%d_%H%M%S).log"
-STATE_FILE="$DEPLOYSTER_DIR/state"
-
-print_help() {
-  cat <<EOF
-Usage: $0 [-v|--verbose] [--log] [-h|--help]
-Options:
-  -v, --verbose      Enable verbose debug output
-      --log          Log all script output to a file (implies non-verbose)
-  -h, --help         Show this help message and exit
-EOF
-}
-
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    -v|--verbose) VERBOSE=1; shift ;;
-    --log) LOG_TO_FILE=1; VERBOSE=0; shift ;;
-    -h|--help) print_help; exit 0 ;;
-    *) print_help; exit 1 ;;
-  esac
-done
-
-if (( LOG_TO_FILE )); then
-  exec > >(tee "$LOG_FILE") 2>&1
-  info "Logging to $LOG_FILE"
-fi
+info()    { if (( LOG_TO_FILE )); then log_info "$*"; else echo -e "${CYAN}$*${RESET}"; fi }
+warn()    { if (( LOG_TO_FILE )); then log_warn "$*"; else echo -e "${YELLOW}$*${RESET}"; fi }
+error()   { if (( LOG_TO_FILE )); then log_error "$*"; else echo -e "${RED}$*${RESET}" >&2; fi }
+success() { if (( LOG_TO_FILE )); then log_success "$*"; else echo -e "${GREEN}$*${RESET}"; fi }
+prompt()  { echo -en "${BOLD}$*${RESET}"; }
 
 log() {
   (( VERBOSE )) && info "[DEBUG] $*"
@@ -101,6 +145,7 @@ REDO_STACK=()
 USER_NAME="${USER:-$(whoami)}"
 HOST_FQDN="$(hostname -f 2>/dev/null || hostname)"
 
+# --- ENVIRONMENT AND DEPENDENCY CHECKS ---
 sys_check() {
   echo -e "$SEPARATOR"
   info "${BOLD}${UNDER}Environment checks${RESET}"
