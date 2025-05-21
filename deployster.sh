@@ -3,7 +3,7 @@
 # Deployster: Push-to-Deploy Git Setup Script (run on target server as cPanel user or any Linux user)
 # All state and log files are stored in ~/.deployster/
 
-set -euo pipefail
+set -uo pipefail
 IFS=$'\n\t'
 OLD_IFS=$IFS
 
@@ -167,7 +167,6 @@ save_state() {
   log "Saved state $step for $REPO_NAME"
 }
 restore_state_vars() {
-  # Restore progress from state file for this repo
   local line key val pair
   line=$(grep -F "${REPO_NAME}:" "$STATE_FILE" 2>/dev/null || true)
   line=${line#${REPO_NAME}:}
@@ -186,7 +185,6 @@ restore_state_vars() {
   log "Restored state for $REPO_NAME: step=$CURRENT_STEP, REPO_ROOT=$REPO_ROOT, WORK_TREE=$WORK_TREE, BRANCH=${BRANCH:-}, HOOK_TYPE=${HOOK_TYPE:-}"
 }
 clear_state() {
-  # Remove state for current repo
   local tmp
   tmp=$(mktemp --tmpdir)
   grep -v -F "${REPO_NAME}:" "$STATE_FILE" >"$tmp" 2>/dev/null || :
@@ -215,11 +213,14 @@ prompt_required() {
     else
       prompt_line="${BOLD}${prompt_text}${RESET}: "
     fi
-    # Print color prompt using variables, then read input
+    set +e
     echo -ne "$prompt_line"
-    if ! read -e input; then
-      # Read error or EOF
-      return 2
+    read -e input
+    local rc=$?
+    set -e
+    if [[ $rc -ne 0 ]]; then
+      error "Input stream closed. Exiting."
+      exit 1
     fi
     [[ "$input" == "undo" ]] && { undo_step; return 1; }
     if [[ -n "$default" && -z "$input" ]]; then input="$default"; fi
@@ -284,15 +285,7 @@ EOF
 
 configure() {
   step_title 1 5 "Repository configuration"
-  # Prompt for repo name (with undo support and robust error handling)
-  while true; do
-    prompt_required REPO_NAME "Repository name (without .git)" "myproject"
-    rc=$?
-    [[ $rc -eq 0 ]] && break
-    [[ $rc -eq 1 ]] && continue
-    error "Prompt error or input stream closed. Aborting."
-    exit 1
-  done
+  while ! prompt_required REPO_NAME "Repository name (without .git)" "myproject"; do :; done
   [[ -e "$STATE_FILE" ]] || touch "$STATE_FILE"
   local saved
   saved=$(grep -F "${REPO_NAME}:" "$STATE_FILE" 2>/dev/null || true)
@@ -303,34 +296,21 @@ configure() {
     echo -e "State: step=$CURRENT_STEP, REPO_ROOT=$REPO_ROOT, WORK_TREE=$WORK_TREE, BRANCH=${BRANCH:-}, HOOK_TYPE=${HOOK_TYPE:-}"
     while true; do
       prompt "Resume, edit, or start over? [r/e/s]: "
+      set +e
       read res
-      [[ "$res" == "undo" ]] && { undo_step; continue; }
+      local rc=$?
+      set -e
+      if [[ $rc -ne 0 ]]; then
+        error "Input stream closed. Exiting."
+        exit 1
+      fi
+      [[ "$res" == "undo" ]] && { undo_step; return; }
       case "$res" in
         r|R) info "Resuming from saved state."; CURRENT_STEP=$((CURRENT_STEP+1)); break;;
         e|E)
-          while true; do
-            prompt_required REPO_ROOT "Bare repo root folder (full folder path)" "${REPO_ROOT:-$HOME/.gitrepo}"
-            rc=$?
-            [[ $rc -eq 0 ]] && break
-            [[ $rc -eq 1 ]] && continue
-            error "Prompt error. Aborting."; exit 1
-          done
-          while true; do
-            prompt_required WORK_TREE "Deployment target folder (full folder path)" "${WORK_TREE:-$HOME/public_html}"
-            rc=$?
-            [[ $rc -eq 0 ]] && break
-            [[ $rc -eq 1 ]] && continue
-            error "Prompt error. Aborting."; exit 1
-          done
-          if [[ "${HOOK_TYPE:-}" == "Specific branch" ]]; then
-            while true; do
-              prompt_required BRANCH "Branch to deploy" "${BRANCH:-master}"
-              rc=$?
-              [[ $rc -eq 0 ]] && break
-              [[ $rc -eq 1 ]] && continue
-              error "Prompt error. Aborting."; exit 1
-            done
-          fi
+          while ! prompt_required REPO_ROOT "Bare repo root folder (full folder path)" "${REPO_ROOT:-$HOME/.gitrepo}"; do :; done
+          while ! prompt_required WORK_TREE "Deployment target folder (full folder path)" "${WORK_TREE:-$HOME/public_html}"; do :; done
+          [[ "${HOOK_TYPE:-}" == "Specific branch" ]] && while ! prompt_required BRANCH "Branch to deploy" "${BRANCH:-master}"; do :; done
           save_state "$CURRENT_STEP"
           info "Edited and saved. Resuming."
           CURRENT_STEP=$((CURRENT_STEP+1)); break;;
@@ -340,20 +320,8 @@ configure() {
     done
   fi
   if (( CURRENT_STEP <= 1 )); then
-    while true; do
-      prompt_required REPO_ROOT "Bare repo root folder (full folder path)" "${REPO_ROOT:-$HOME/.gitrepo}"
-      rc=$?
-      [[ $rc -eq 0 ]] && break
-      [[ $rc -eq 1 ]] && continue
-      error "Prompt error. Aborting."; exit 1
-    done
-    while true; do
-      prompt_required WORK_TREE "Deployment target folder (full folder path)" "${WORK_TREE:-$HOME/public_html}"
-      rc=$?
-      [[ $rc -eq 0 ]] && break
-      [[ $rc -eq 1 ]] && continue
-      error "Prompt error. Aborting."; exit 1
-    done
+    while ! prompt_required REPO_ROOT "Bare repo root folder (full folder path)" "${REPO_ROOT:-$HOME/.gitrepo}"; do :; done
+    while ! prompt_required WORK_TREE "Deployment target folder (full folder path)" "${WORK_TREE:-$HOME/public_html}"; do :; done
     save_state 1
     CURRENT_STEP=2
   fi
@@ -393,8 +361,15 @@ select_hook() {
   echo "3) Any branch & prune others"
   while true; do
     prompt "Choice (1-3) [h for help]: "
+    set +e
     read c
-    [[ "$c" == "undo" ]] && { undo_step; continue; }
+    local rc=$?
+    set -e
+    if [[ $rc -ne 0 ]]; then
+      error "Input stream closed. Exiting."
+      exit 1
+    fi
+    [[ "$c" == "undo" ]] && { undo_step; return; }
     case "$c" in
       1) HOOK_TYPE="Specific branch"; break;;
       2) HOOK_TYPE="Any branch"; break;;
@@ -409,13 +384,7 @@ select_hook() {
   done
   case "$HOOK_TYPE" in
     "Specific branch")
-      while true; do
-        prompt_required BRANCH "Branch to deploy" "${BRANCH:-master}"
-        rc=$?
-        [[ $rc -eq 0 ]] && break
-        [[ $rc -eq 1 ]] && continue
-        error "Prompt error. Aborting."; exit 1
-      done
+      while ! prompt_required BRANCH "Branch to deploy" "${BRANCH:-master}"; do :; done
       if ! [[ "$BRANCH" =~ ^[A-Za-z0-9._/-]+$ ]]; then
         warn "Branch name invalid. Must match Git conventions."
         select_hook; return
@@ -482,8 +451,15 @@ finalize() {
   step_title 5 5 "Complete setup"
   print_config_summary
   prompt "${YELLOW}Proceed with installation? (y/n): ${RESET}"
+  set +e
   read conf
-  [[ "$conf" == "undo" ]] && { undo_step; finalize; return; }
+  local rc=$?
+  set -e
+  if [[ $rc -ne 0 ]]; then
+    error "Input stream closed. Exiting."
+    exit 1
+  fi
+  [[ "$conf" == "undo" ]] && { undo_step; return; }
   [[ "$conf" =~ ^[Yy]$ ]] || { warn "Aborted at confirmation step."; exit 1; }
   REPO_ROOT=$(resolve_path "$REPO_ROOT")
   BARE_DIR="$REPO_ROOT/${REPO_NAME}.git"
