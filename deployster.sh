@@ -28,7 +28,6 @@ PROGRESS_BAR=(
   "[${GREEN}#####${RESET}]"
 )
 
-# --- SETUP WORKDIR FOR STATE AND LOG FILES ---
 DEPLOYSTER_DIR="$HOME/.deployster"
 mkdir -p "$DEPLOYSTER_DIR"
 
@@ -36,6 +35,25 @@ VERBOSE=0
 LOG_TO_FILE=0
 LOG_FILE="$DEPLOYSTER_DIR/deployster_setup_$(date +%Y%m%d_%H%M%S).log"
 STATE_FILE="$DEPLOYSTER_DIR/state"
+
+# --- LOG WITH TIMESTAMPS, must be defined BEFORE any log_* function calls! ---
+log_ts() {
+  local level="$1"
+  shift
+  local now
+  now=$(date '+%Y-%m-%d %H:%M:%S')
+  # Output to stderr for error, stdout otherwise
+  if [[ "$level" == "ERROR" ]]; then
+    echo -e "$now [$level] $*" >&2
+  else
+    echo -e "$now [$level] $*"
+  fi
+}
+
+log_info()    { log_ts "INFO" "$@"; }
+log_warn()    { log_ts "WARN" "$@"; }
+log_error()   { log_ts "ERROR" "$@"; }
+log_success() { log_ts "OK" "$@"; }
 
 # --- COMMAND-LINE HELP ---
 print_help() {
@@ -78,31 +96,11 @@ if (( ! USE_COLOR )); then
   )
 fi
 
-# --- LOGGING SETUP (MUST HAPPEN AFTER COLOR HANDLING) ---
+# --- LOGGING SETUP ---
 if (( LOG_TO_FILE )); then
   exec > >(tee "$LOG_FILE") 2>&1
-  # Output first log message with timestamp (use log_info)
   log_info "Logging to $LOG_FILE"
 fi
-
-# --- LOG WITH TIMESTAMPS ---
-log_ts() {
-  local level="$1"
-  shift
-  local now
-  now=$(date '+%Y-%m-%d %H:%M:%S')
-  # Output to stderr for error, stdout otherwise
-  if [[ "$level" == "ERROR" ]]; then
-    echo -e "$now [$level] $*" >&2
-  else
-    echo -e "$now [$level] $*"
-  fi
-}
-
-log_info()    { log_ts "INFO" "$@"; }
-log_warn()    { log_ts "WARN" "$@"; }
-log_error()   { log_ts "ERROR" "$@"; }
-log_success() { log_ts "OK" "$@"; }
 
 # --- UI functions ---
 banner() {
