@@ -145,6 +145,8 @@ sys_check() {
     info "${BOLD}${UNDER}Environment checks${RESET}"
   fi
   if [[ $EUID -eq 0 ]]; then
+    # Uncomment below to hard-abort if run as root (optional)
+    # log_error "Running as root is not supported for safety. Abort."; exit 1
     if (( LOG_TO_FILE )); then
       log_warn "It is not recommended to run this as root. Proceed with caution."
     else
@@ -264,6 +266,11 @@ prompt_required() {
     echo -ne "$prompt_line"
     read -e input || { log_error "Input stream closed. Exiting."; exit 1; }
     [[ "$input" == "undo" ]] && { undo_step; return 1; }
+    # Repo name safety check
+    if [[ "$var_name" == "REPO_NAME" ]] && ! [[ "$input" =~ ^[A-Za-z0-9._-]+$ ]]; then
+      log_warn "Repository name contains invalid characters. Only letters, digits, dot, underscore, and hyphen allowed."
+      continue
+    fi
     if [[ -n "$default" && -z "$input" ]]; then input="$default"; fi
     if [[ -z "$input" ]]; then
       log_warn "This value is required."
