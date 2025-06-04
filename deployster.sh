@@ -9,6 +9,10 @@ OLD_IFS=$IFS
 
 # --- SETUP WORKDIR FOR STATE AND LOG FILES ---
 DEPLOYSTER_DIR="$HOME/.deployster"
+if [[ -e "$DEPLOYSTER_DIR" && ! -d "$DEPLOYSTER_DIR" ]]; then
+  echo "ERROR: $DEPLOYSTER_DIR exists and is not a directory. Please remove or rename it."
+  exit 1
+fi
 mkdir -p "$DEPLOYSTER_DIR"
 
 VERBOSE=0
@@ -289,6 +293,9 @@ gen_hook_specific() {
 # Define the Git work tree path
 GIT_WORK_TREE="$WORK_TREE"
 
+# Ensure deployment folder exists
+mkdir -p "\$GIT_WORK_TREE"
+
 # Define the branch name
 BRANCH="$BRANCH"  # e.g., 'master', 'production', etc.
 
@@ -306,6 +313,9 @@ gen_hook_any() {
 # Define the Git work tree path
 GIT_WORK_TREE="$WORK_TREE"
 
+# Ensure deployment folder exists
+mkdir -p "\$GIT_WORK_TREE"
+
 while read old new ref; do
   branch=\$(GIT_WORK_TREE="\$GIT_WORK_TREE" git rev-parse --symbolic --abbrev-ref "\$ref")
   GIT_WORK_TREE="\$GIT_WORK_TREE" git checkout -f "\$branch"
@@ -319,6 +329,9 @@ gen_hook_prune() {
 
 # Define the Git work tree path
 GIT_WORK_TREE="$WORK_TREE"
+
+# Ensure deployment folder exists
+mkdir -p "\$GIT_WORK_TREE"
 
 while read old new ref; do
   branch=\$(GIT_WORK_TREE="\$GIT_WORK_TREE" git rev-parse --symbolic --abbrev-ref "\$ref")
@@ -445,14 +458,17 @@ install_hook() {
     cp "$HOOK_PATH" "$backup"
     log_warn "Existing hook backed up to $backup"
   fi
-  $HOOK_GENERATOR > "$HOOK_PATH"
+  # Generate hook to a temporary file first
+  tmp_hook=$(mktemp)
+  $HOOK_GENERATOR > "$tmp_hook" || { log_error "Failed to generate hook."; rm -f "$tmp_hook"; exit 1; }
+  cat "$tmp_hook" > "$HOOK_PATH"
+  rm -f "$tmp_hook"
   if command -v dos2unix >/dev/null 2>&1; then
     dos2unix "$HOOK_PATH" >/dev/null
   else
     tr -d '\r' < "$HOOK_PATH" > "$HOOK_PATH.tmp" && mv "$HOOK_PATH.tmp" "$HOOK_PATH"
   fi
-  chmod 755 "$HOOK_PATH"
-  if [[ ! -x "$HOOK_PATH" ]]; then
+  if ! chmod 755 "$HOOK_PATH"; then
     log_error "Could not set executable permissions for $HOOK_PATH"
     exit 1
   fi
